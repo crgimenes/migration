@@ -1,0 +1,14 @@
+
+builds:
+  - binary: migration
+    main: cmd/migration/main.go
+    goos:
+      - windows
+      - darwin
+      - linux
+    goarch:
+      - amd64
+release:
+  github:
+    owner: felipeweb
+    name: migration

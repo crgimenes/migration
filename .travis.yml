@@ -1,0 +1,29 @@
+sudo: false
+dist: trusty
+language: go
+
+services:
+  - postgresql
+
+os:
+  - linux
+
+go:
+  - "1.12.x"
+
+install: true
+
+before_script:
+  - psql -c 'create database test;' -U postgres
+
+script:
+  - go test -coverprofile c.out ./...
+
+deploy:
+- provider: script
+  skip_cleanup: true
+  script: curl -sL https://git.io/goreleaser | bash
+  on:
+    tags: true
+    condition: $TRAVIS_OS_NAME = linux
+    go: "1.12.x"
