@@ -17,8 +17,8 @@ before_script:
   - psql -c 'create database test;' -U postgres
 
 script:
-  - go test -race -coverprofile=coverage.txt -covermode=atomic
-  
+  - go test -mod=vendor -race -coverprofile=coverage.txt -covermode=atomic
+
 after_success:
   - bash <(curl -s https://codecov.io/bash)
 
