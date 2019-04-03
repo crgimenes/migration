@@ -1,4 +1,4 @@
-module guthub.com/felipeweb/migration
+module github.com/felipeweb/migration
 
 go 1.12
 
