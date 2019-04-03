@@ -19,8 +19,8 @@ func Execute() error {
 	app = cli.NewApp()
 	app.EnableBashCompletion = true
 	app.Name = "Migration Tool"
-	app.Author = "Func Cloud"
-	app.Copyright = "(c) 2019 Func Cloud"
+	app.Author = "Felipe Oliveira (felipeweb)"
+	app.Copyright = "(c) 2019 Felipe Oliveira"
 	app.Commands = commands
 	app.Version = Version
 	cli.VersionFlag = cli.BoolFlag{
