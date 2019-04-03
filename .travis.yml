@@ -17,7 +17,10 @@ before_script:
   - psql -c 'create database test;' -U postgres
 
 script:
-  - go test -coverprofile c.out ./...
+  - go test -race -coverprofile=coverage.txt -covermode=atomic
+  
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
 
 deploy:
 - provider: script
