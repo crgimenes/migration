@@ -114,4 +114,8 @@ func TestRun(t *testing.T) {
 	if len(exec) != 3 {
 		t.Errorf("expected len(exec) %v but got %v", 3, len(exec))
 	}
+	_, _, err = Run(context.Background(), source, url, "s")
+	if err == nil {
+		t.Error("err is nil")
+	}
 }
