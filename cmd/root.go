@@ -11,7 +11,7 @@ var (
 	app      *cli.App
 	commands []cli.Command
 	// Version of migration app
-	Version string
+	Version = "1.0.4"
 )
 
 // Execute starts the migration app CLI
@@ -27,7 +27,7 @@ func Execute() error {
 		Name: "version",
 	}
 	cli.VersionPrinter = func(c *cli.Context) {
-		fmt.Fprintf(c.App.Writer, "Func Cloud migration service version=%s\n", c.App.Version)
+		fmt.Fprintf(c.App.Writer, "Migration tool version=%s\n", c.App.Version)
 	}
 	return app.Run(os.Args)
 }
