@@ -51,7 +51,6 @@ func migrate(c *cli.Context) error {
 		signal.Notify(sigint, os.Interrupt)
 		signal.Notify(sigint, syscall.SIGTERM)
 		<-sigint
-		cancel()
 		fmt.Fprintln(c.App.Writer, "exiting")
 		echan <- struct{}{}
 	}(ctx)
