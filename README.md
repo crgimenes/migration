@@ -1,5 +1,5 @@
 # migration
-[![Build Status](https://travis-ci.com/gosidekick/migration.svg?branch=master)](https://travis-ci.org/gosidekick/migration)
+[![Build Status](https://travis-ci.org/gosidekick/migration.svg?branch=master)](https://travis-ci.org/gosidekick/migration)
 [![Go Report Card](https://goreportcard.com/badge/github.com/gosidekick/migration)](https://goreportcard.com/report/github.com/gosidekick/migration/v2)
 [![GoDoc](https://godoc.org/github.com/gosidekick/migration?status.png)](https://godoc.org/github.com/gosidekick/migration/v2)
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-green.svg)](https://tldrlegal.com/license/mit-license)
@@ -8,7 +8,7 @@
 PostgreSQL migration tool with transactions
 
 ```console
-./migration -url "postgres://postgres@localhost:5432/dbname?sslmode=disable" -dir ./fixtures -action up
+./migration exec -url "postgres://postgres@localhost:5432/dbname?sslmode=disable" -dir ./fixtures -action up
 ```
 
 ```console
