@@ -4,7 +4,9 @@ builds:
     main: cmd/migration/main.go
     env:
       - CGO_ENABLED=0
+      - GO111MODULE=on
     flags:
+      - mod=vendor
       - -a 
       - -installsuffix 
       - cgo
