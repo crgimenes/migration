@@ -11,7 +11,7 @@ var (
 	app      *cli.App
 	commands []cli.Command
 	// Version of migration app
-	Version = "1.0.4"
+	Version string
 )
 
 // Execute starts the migration app CLI
@@ -19,8 +19,8 @@ func Execute() error {
 	app = cli.NewApp()
 	app.EnableBashCompletion = true
 	app.Name = "Migration Tool"
-	app.Author = "Felipe Oliveira (felipeweb)"
-	app.Copyright = "(c) 2019 Felipe Oliveira"
+	app.Author = "Go Sidekick Team"
+	app.Copyright = "(c) 2019 Go Sidekick"
 	app.Commands = commands
 	app.Version = Version
 	cli.VersionFlag = cli.BoolFlag{

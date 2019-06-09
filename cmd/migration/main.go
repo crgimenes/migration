@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/felipeweb/migration/cmd"
+	"github.com/gosidekick/migration/v2/cmd"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 )

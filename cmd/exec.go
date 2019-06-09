@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/felipeweb/migration"
+	"github.com/gosidekick/migration/v2"
 	"github.com/urfave/cli"
 )
 
