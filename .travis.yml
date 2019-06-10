@@ -23,7 +23,7 @@ script:
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action up
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
-  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action down 1
+  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action "down 1"
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action down
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
