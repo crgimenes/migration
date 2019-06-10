@@ -2,7 +2,6 @@ package migration
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -162,13 +161,10 @@ func Run(ctx context.Context, source, url, migrate string) (n int, executed []st
 	switch m[0] {
 	case "up":
 		n, executed, err = doUp(ctx, m, source, db)
-		fmt.Println(">>>>>>>>>>>>>> up", executed)
 	case "down":
 		n, executed, err = doDown(ctx, m, source, db)
-		fmt.Println(">>>>>>>>>>>>>> down", executed)
 	case "status":
 		n, executed, err = Status(ctx, source, db)
-		fmt.Println(">>>>>>>>>>>>>> status", executed)
 	default:
 		err = xerrors.Errorf("unknown migration command")
 	}

@@ -56,6 +56,7 @@ func migrate(c *cli.Context) error {
 	}(ctx)
 	go func(ctx context.Context) {
 		n, executed, err := migration.Run(ctx, dir, dbURL, action)
+		fmt.Println(">>>>>>>>", executed)
 		switch action {
 		case "status":
 			fmt.Fprintf(c.App.Writer, "check migrations located in %v\n", dir)
