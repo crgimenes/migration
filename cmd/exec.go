@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/gosidekick/migration/v2"
@@ -56,7 +57,7 @@ func migrate(c *cli.Context) error {
 	}(ctx)
 	go func(ctx context.Context) {
 		n, executed, err := migration.Run(ctx, dir, dbURL, action)
-		switch action {
+		switch strings.Fields(action)[0] {
 		case "status":
 			fmt.Fprintf(c.App.Writer, "check migrations located in %v\n", dir)
 			fmt.Fprintf(c.App.Writer, "%v needs to be executed\n", n)
