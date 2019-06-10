@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -147,6 +148,10 @@ func Run(ctx context.Context, source, url, migrate string) (n int, executed []st
 	m := strings.Split(migrate, " ")
 	if len(m) > 2 {
 		err = xerrors.Errorf("the number of migration parameters is incorrect")
+		return
+	}
+	_, err = os.Stat(source)
+	if err != nil {
 		return
 	}
 	err = initSchemaMigrations(ctx, db)
