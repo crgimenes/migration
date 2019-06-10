@@ -21,6 +21,8 @@ before_script:
 script:
   - GO111MODULE=on go test -mod=vendor -race -coverprofile=coverage.txt -covermode=atomic ./...
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
+  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action "up 1"
+  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action up
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
   - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action "down 1"
