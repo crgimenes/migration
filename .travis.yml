@@ -15,9 +15,14 @@ install: true
 
 before_script:
   - psql -c 'create database test;' -U postgres
+  - GO111MODULE=on go install -mod=readonly github.com/gosidekick/migration/v2/cmd/migration
 
 script:
   - GO111MODULE=on go test -mod=vendor -race -coverprofile=coverage.txt -covermode=atomic ./...
+  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
+  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action down
+  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action up
+  - migration exec -url "postgres://postgres@localhost:5432/test?sslmode=disable" -dir ./testdata -action status
 
 after_success:
   - bash <(curl -s https://codecov.io/bash)
