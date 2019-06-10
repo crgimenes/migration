@@ -78,6 +78,10 @@ func TestRun(t *testing.T) {
 	if err == nil {
 		t.Fatal("err dir is nil")
 	}
+	_, _, err = Run(context.Background(), "./migration.go", url, "up")
+	if err == nil {
+		t.Fatal("err dir is nil")
+	}
 	n, exec, err := Run(context.Background(), source, url, "up")
 	if err != nil {
 		t.Fatal(err)
