@@ -10,8 +10,7 @@ builds:
       - -installsuffix 
       - cgo
       - -mod=vendor
-    ldflags:
-     - -X cmd.Version={{.Version}}
+    ldflags: -X github.com/gosidekick/migration/v2/cmd.Version={{.Version}}
     goos:
       - windows
       - darwin
