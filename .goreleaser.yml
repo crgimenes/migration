@@ -26,7 +26,6 @@ dockers:
     image_templates:
     - "gosidekick/migration:latest"
     - "gosidekick/migration:{{ .Tag }}"
-    - "gosidekick/migration:{{ .Tag }}-{{ .Env.GOVERSION }}"
     - "gosidekick/migration:v{{ .Major }}"
     - "gosidekick/migration:v{{ .Major }}.{{ .Minor }}"
     skip_push: false
