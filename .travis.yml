@@ -1,9 +1,9 @@
-sudo: false
 dist: trusty
 language: go
 
 services:
   - postgresql
+  - docker
 
 os:
   - linux
@@ -32,6 +32,7 @@ script:
 
 after_success:
   - bash <(curl -s https://codecov.io/bash)
+  - docker login $DOCKER_USERNAME -p $DOCKER_PASSWORD
 
 deploy:
 - provider: script
