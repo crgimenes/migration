@@ -1,3 +1,7 @@
+# contrib.go.opencensus.io/integrations/ocsql v0.1.4
+contrib.go.opencensus.io/integrations/ocsql
+# github.com/hashicorp/golang-lru v0.5.1
+github.com/hashicorp/golang-lru/simplelru
 # github.com/jmoiron/sqlx v1.2.0
 github.com/jmoiron/sqlx
 github.com/jmoiron/sqlx/reflectx
@@ -11,7 +15,24 @@ github.com/lib/pq/scram
 github.com/sirupsen/logrus
 # github.com/urfave/cli v1.20.0
 github.com/urfave/cli
-# golang.org/x/sys v0.0.0-20190606165138-5da285871e9c
+# go.opencensus.io v0.22.0
+go.opencensus.io/stats
+go.opencensus.io/stats/view
+go.opencensus.io/tag
+go.opencensus.io/trace
+go.opencensus.io/metric/metricdata
+go.opencensus.io/stats/internal
+go.opencensus.io/internal/tagencoding
+go.opencensus.io/metric/metricproducer
+go.opencensus.io/internal
+go.opencensus.io/trace/internal
+go.opencensus.io/trace/tracestate
+go.opencensus.io/resource
+go.opencensus.io
+# gocloud.dev v0.15.1-0.20190718235309-0801d6ac90be
+gocloud.dev/postgres
+gocloud.dev/internal/openurl
+# golang.org/x/sys v0.0.0-20190606203320-7fc4e5ec1444
 golang.org/x/sys/unix
 # golang.org/x/xerrors v0.0.0-20190513163551-3ee3066db522
 golang.org/x/xerrors
