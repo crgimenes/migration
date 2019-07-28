@@ -21,16 +21,19 @@ var (
 		Name: "exec",
 		Flags: []cli.Flag{
 			cli.StringFlag{
-				Name:  "url",
-				Usage: "DB URL",
+				Name:   "url",
+				Usage:  "DB URL",
+				EnvVar: "DATABASE_URL",
 			},
 			cli.StringFlag{
-				Name:  "dir",
-				Usage: "Migrations dir",
+				Name:   "dir",
+				Usage:  "Migrations dir",
+				EnvVar: "MIGRATIONS",
 			},
 			cli.StringFlag{
-				Name:  "action",
-				Usage: "Migrations action",
+				Name:   "action",
+				Usage:  "Migrations action",
+				EnvVar: "ACTION",
 			},
 		},
 		Action: migrate,
