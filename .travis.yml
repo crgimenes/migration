@@ -41,4 +41,4 @@ deploy:
   on:
     tags: true
     condition: $TRAVIS_OS_NAME = linux
-    go: "1.12.x"
+    go: "1.15.x"
