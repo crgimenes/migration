@@ -1,2 +1,2 @@
 // Package migration execute database migration
-package migration // import "github.com/gosidekick/migration/v2"
+package migration // import "github.com/gosidekick/migration/v3"

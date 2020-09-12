@@ -8,7 +8,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/gosidekick/migration/v2"
+	"github.com/gosidekick/migration/v3"
 	"github.com/urfave/cli"
 )
 

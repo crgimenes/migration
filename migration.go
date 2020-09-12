@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"gocloud.dev/postgres"
 	"golang.org/x/xerrors"
 )
 
@@ -219,12 +218,11 @@ func doUp(ctx context.Context, m []string, source string, db *sqlx.DB) (number i
 }
 
 func open(ctx context.Context, url string) (db *sqlx.DB, err error) {
-	d, err := postgres.Open(ctx, url)
+	db, err = sqlx.ConnectContext(ctx, "postgres", url)
 	if err != nil {
 		err = xerrors.Errorf("unable to open db: %v", err)
 		return
 	}
-	db = sqlx.NewDb(d, "postgres")
 	err = db.PingContext(ctx)
 	if err != nil {
 		err = xerrors.Errorf("error ping db: %v", err)
