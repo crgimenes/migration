@@ -2,7 +2,6 @@ package migration
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,7 +60,7 @@ func execDown(ctx context.Context, files []string, start, n int, db *sqlx.DB) (n
 	}
 	for k, f := range files[start:n] {
 		var b []byte
-		b, err = ioutil.ReadFile(f) // nolint
+		b, err = os.ReadFile(f) // nolint
 		if err != nil {
 			return
 		}
@@ -98,7 +97,7 @@ func execUp(ctx context.Context, files []string, start, n int, db *sqlx.DB) (num
 	i := start + 1
 	for k, f := range files[start:n] {
 		var b []byte
-		b, err = ioutil.ReadFile(f) // nolint
+		b, err = os.ReadFile(f) // nolint
 		if err != nil {
 			return
 		}
