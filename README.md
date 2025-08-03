@@ -25,10 +25,10 @@ A simple and efficient database migration utility with transaction support for P
 
 **What this means for you:**
 
-- ✅ **Safe**: The tool only manages its own tracking table
-- ✅ **Automatic**: No manual setup required
-- ✅ **Standard**: Uses common migration table naming convention
-- ⚠️ **Awareness**: Be aware this table will exist in your database schema
+- **Safe**: The tool only manages its own tracking table
+- **Automatic**: No manual setup required
+- **Standard**: Uses common migration table naming convention
+- **Awareness**: Be aware this table will exist in your database schema
 
 ## Installation
 
