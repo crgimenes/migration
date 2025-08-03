@@ -5,6 +5,8 @@
 
 A simple and efficient database migration utility with transaction support for PostgreSQL and SQLite, built using only Go standard libraries.
 
+![version](migration_version.png)
+
 ## Features
 
 - **Transactions**: Each migration runs in a safe transaction
@@ -45,6 +47,8 @@ go build -o migration
 ```
 
 ## Usage
+
+!["Usage Example"](migration_up.png)
 
 ### Configuration via Environment Variables
 
