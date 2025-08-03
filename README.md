@@ -3,24 +3,24 @@
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-green.svg)](https://tldrlegal.com/license/mit-license)
 [![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org)
 
-Um utilitário de migração PostgreSQL simples e eficiente com suporte a transações, construído usando apenas bibliotecas padrão do Go.
+A simple and efficient PostgreSQL migration utility with transaction support, built using only Go standard libraries.
 
-## Características
+## Features
 
-- ✅ **Bibliotecas Padrão**: Usa apenas `flag` do Go, sem dependências CLI externas
-- ✅ **Transações**: Cada migração é executada em uma transação segura
-- ✅ **PostgreSQL**: Suporte nativo ao PostgreSQL
-- ✅ **Variáveis de Ambiente**: Configuração flexível via env vars ou flags
-- ✅ **Controle de Versão**: Acompanha migrações executadas
-- ✅ **Rollback**: Suporte para reverter migrações
+- **Standard Libraries**: Uses only Go's `flag` package, no external CLI dependencies
+- **Transactions**: Each migration runs in a safe transaction
+- **PostgreSQL**: Native PostgreSQL support
+- **Environment Variables**: Flexible configuration via env vars or flags
+- **Version Control**: Tracks executed migrations
+- **Rollback**: Support for reverting migrations
 
-## Instalação
+## Installation
 
 ```bash
 go install github.com/crgimenes/migration@latest
 ```
 
-Ou compile do código fonte:
+Or compile from source:
 
 ```bash
 git clone https://github.com/crgimenes/migration.git
@@ -28,9 +28,9 @@ cd migration
 go build -o migration
 ```
 
-## Uso
+## Usage
 
-### Configuração via Variáveis de Ambiente
+### Configuration via Environment Variables
 
 ```bash
 export DATABASE_URL="postgres://user:password@localhost:5432/dbname?sslmode=disable"
@@ -39,48 +39,48 @@ export ACTION="status"
 ./migration
 ```
 
-### Configuração via Flags
+### Configuration via Flags
 
-#### Verificar Status das Migrações
+#### Check Migration Status
 
 ```bash
 ./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "status"
 ```
 
-#### Executar Todas as Migrações Pendentes
+#### Run All Pending Migrations
 
 ```bash
 ./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "up"
 ```
 
-#### Executar um Número Específico de Migrações
+#### Run Specific Number of Migrations
 
 ```bash
 ./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "up 2"
 ```
 
-#### Reverter Todas as Migrações
+#### Revert All Migrations
 
 ```bash
 ./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "down"
 ```
 
-#### Reverter um Número Específico de Migrações
+#### Revert Specific Number of Migrations
 
 ```bash
 ./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "down 1"
 ```
 
-### Ajuda e Versão
+### Help and Version
 
 ```bash
 ./migration -help
 ./migration -version
 ```
 
-## Estrutura dos Arquivos de Migração
+## Migration File Structure
 
-Os arquivos de migração devem seguir a convenção de nomenclatura:
+Migration files must follow the naming convention:
 
 ```
 001_create_users_table.up.sql
@@ -89,7 +89,7 @@ Os arquivos de migração devem seguir a convenção de nomenclatura:
 002_add_email_index.down.sql
 ```
 
-### Exemplo de Migração
+### Migration Example
 
 **001_create_users_table.up.sql:**
 
@@ -108,45 +108,45 @@ CREATE TABLE users (
 DROP TABLE users;
 ```
 
-## Opções de Configuração
+## Configuration Options
 
-| Flag | Variável de Ambiente | Descrição |
-|------|---------------------|-----------|
-| `-url` | `DATABASE_URL` | URL de conexão do PostgreSQL |
-| `-dir` | `MIGRATIONS` | Diretório contendo os arquivos de migração |
-| `-action` | `ACTION` | Ação a ser executada (`up`, `down`, `status`) |
-| `-help` | - | Mostra ajuda |
-| `-version` | - | Mostra versão |
+| Flag | Environment Variable | Description |
+|------|---------------------|-------------|
+| `-url` | `DATABASE_URL` | PostgreSQL connection URL |
+| `-dir` | `MIGRATIONS` | Directory containing migration files |
+| `-action` | `ACTION` | Action to execute (`up`, `down`, `status`) |
+| `-help` | - | Show help |
+| `-version` | - | Show version |
 
-## Dependências
+## Dependencies
 
-Este projeto usa apenas dependências mínimas:
+This project uses only minimal dependencies:
 
-- `github.com/jmoiron/sqlx` - Extensões SQL para Go
-- `github.com/lib/pq` - Driver PostgreSQL puro Go
-- `golang.org/x/xerrors` - Tratamento de erros
+- `github.com/jmoiron/sqlx` - SQL extensions for Go
+- `github.com/lib/pq` - Pure Go PostgreSQL driver
+- `golang.org/x/xerrors` - Error handling
 
-## Exemplo Completo
+## Complete Example
 
 ```bash
-# 1. Configurar variáveis de ambiente
+# 1. Set environment variables
 export DATABASE_URL="postgres://postgres:password@localhost:5432/myapp?sslmode=disable"
 export MIGRATIONS="./migrations"
 
-# 2. Verificar status
+# 2. Check status
 ./migration -action "status"
 
-# 3. Executar migrações
+# 3. Run migrations
 ./migration -action "up"
 
-# 4. Se necessário, reverter
+# 4. If needed, revert
 ./migration -action "down 1"
 ```
 
-## Contribuição
+## Contributing
 
-Contribuições são bem-vindas! Por favor, abra uma issue ou envie um pull request.
+Contributions are welcome! Please open an issue or submit a pull request.
 
-## Licença
+## License
 
-Este projeto está licenciado sob a Licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
