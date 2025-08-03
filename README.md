@@ -3,12 +3,13 @@
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-green.svg)](https://tldrlegal.com/license/mit-license)
 [![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org)
 
-A simple and efficient PostgreSQL migration utility with transaction support, built using only Go standard libraries.
+A simple and efficient database migration utility with transaction support for PostgreSQL and SQLite, built using only Go standard libraries.
 
 ## Features
 
+- **Standard Libraries**: Uses only Go's `flag` package, no external CLI dependencies
 - **Transactions**: Each migration runs in a safe transaction
-- **PostgreSQL**: Native PostgreSQL support
+- **Multi-Database**: Supports PostgreSQL and SQLite with automatic detection
 - **Environment Variables**: Flexible configuration via env vars or flags
 - **Version Control**: Tracks executed migrations
 - **Rollback**: Support for reverting migrations
@@ -43,19 +44,24 @@ export ACTION="status"
 #### Check Migration Status
 
 ```bash
-./migration \
-  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
-  -dir "./migrations" \
-  -action "status"
+# PostgreSQL
+./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "status"
+
+# SQLite file
+./migration -url "sqlite:///path/to/database.db" -dir "./migrations" -action "status"
+
+# SQLite in-memory (for testing)
+./migration -url "sqlite::memory:" -dir "./migrations" -action "status"
 ```
 
 #### Run All Pending Migrations
 
 ```bash
-./migration \
-  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
-  -dir "./migrations" \
-  -action "up"
+# PostgreSQL
+./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "up"
+
+# SQLite
+./migration -url "sqlite:///path/to/database.db" -dir "./migrations" -action "up"
 ```
 
 #### Run Specific Number of Migrations
@@ -108,58 +114,138 @@ Migration files must follow the naming convention:
 **001_create_users_table.up.sql:**
 
 ```sql
+-- PostgreSQL version
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- SQLite version (if using SQLite)
+-- CREATE TABLE users (
+--     id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     name TEXT NOT NULL,
+--     email TEXT UNIQUE NOT NULL,
+--     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+-- );
 ```
 
 **001_create_users_table.down.sql:**
 
 ```sql
-DROP TABLE users;
+DROP TABLE IF EXISTS users;
 ```
 
-## Configuration Options
+### Advanced Migration Examples
 
-| Flag | Environment Variable | Description |
-|------|---------------------|-------------|
-| `-url` | `DATABASE_URL` | PostgreSQL connection URL |
-| `-dir` | `MIGRATIONS` | Directory containing migration files |
-| `-action` | `ACTION` | Action to execute (`up`, `down`, `status`) |
-| `-help` | - | Show help |
-| `-version` | - | Show version |
+**002_add_user_profile.up.sql:**
 
-## Dependencies
+```sql
+-- Add profile fields to users table
+ALTER TABLE users 
+ADD COLUMN avatar_url TEXT,
+ADD COLUMN bio TEXT,
+ADD COLUMN is_active BOOLEAN DEFAULT true;
 
-This project uses only minimal dependencies:
+-- Create user sessions table
+CREATE TABLE user_sessions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    session_token VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 
-- `github.com/jmoiron/sqlx` - SQL extensions for Go
-- `github.com/lib/pq` - Pure Go PostgreSQL driver
-- `golang.org/x/xerrors` - Error handling
+CREATE INDEX idx_user_sessions_token ON user_sessions(session_token);
+CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
+```
 
-## Complete Example
+**002_add_user_profile.down.sql:**
+
+```sql
+-- Remove in reverse order
+DROP INDEX IF EXISTS idx_user_sessions_user_id;
+DROP INDEX IF EXISTS idx_user_sessions_token;
+DROP TABLE IF EXISTS user_sessions;
+
+-- Remove columns (PostgreSQL syntax)
+ALTER TABLE users 
+DROP COLUMN IF EXISTS avatar_url,
+DROP COLUMN IF EXISTS bio,
+DROP COLUMN IF EXISTS is_active;
+```
+
+### Database-Specific Migration Tips
+
+#### PostgreSQL Features
+
+```sql
+-- Use transactions (automatically handled by migration tool)
+-- Use IF EXISTS/IF NOT EXISTS for safety
+-- Consider using SERIAL for auto-increment IDs
+-- Use proper data types: VARCHAR, TEXT, TIMESTAMP, etc.
+```
+
+#### SQLite Considerations
+
+```sql
+-- Use INTEGER PRIMARY KEY for auto-increment
+-- Use TEXT instead of VARCHAR
+-- Use DATETIME instead of TIMESTAMP
+-- Be careful with ALTER TABLE limitations
+-- Some operations require table recreation
+```
+
+### Troubleshooting
+
+#### Common Issues
+
+**Migration not found:**
 
 ```bash
-# 1. Set environment variables
-export DATABASE_URL="postgres://postgres:password@localhost:5432/myapp?sslmode=disable"
-export MIGRATIONS="./migrations"
+# Check if files exist and have correct naming
+ls -la migrations/
+```
 
-# 2. Check status
-./migration -action "status"
+**Database connection issues:**
 
-# 3. Run migrations
-./migration -action "up"
+```bash
+# Test connection manually
+psql $DATABASE_URL -c "SELECT 1;"
+# Or for SQLite
+sqlite3 /path/to/database.db ".tables"
+```
 
-# 4. If needed, revert
-./migration -action "down 1"
+**Permission errors:**
+
+```bash
+# Make sure database user has proper permissions
+# For PostgreSQL: GRANT CREATE, ALTER, DROP ON DATABASE
+# For SQLite: Check file permissions
 ```
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Running Tests
+
+```bash
+# Run all tests
+go test -v
+
+# Run with coverage
+go test -v -cover
+
+# Run specific test
+go test -v -run TestSpecificFunction
+```
 
 ## License
 

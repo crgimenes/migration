@@ -26,9 +26,7 @@ func Execute() error {
 	)
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Migration Tool\n")
-		fmt.Fprintf(os.Stderr, "Author: Go Sidekick Team\n")
-		fmt.Fprintf(os.Stderr, "Copyright: (c) 2019 Go Sidekick\n\n")
+		fmt.Fprintf(os.Stderr, "Migration Tool\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()

@@ -28,17 +28,17 @@ func downFiles(dir string, n int) (files []string, err error) {
 	return
 }
 
-func up(ctx context.Context, source string, start, n int, db *sqlx.DB) (number int, executed []string, err error) {
+func up(ctx context.Context, source string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
 	files, err := upFiles(source)
 	if err != nil {
 		return
 	}
-	number, executed, err = execUp(ctx, files, start, n, db)
+	number, executed, err = execUp(ctx, files, start, n, db, config)
 	return
 }
 
-func down(ctx context.Context, source string, start, n int, db *sqlx.DB) (number int, executed []string, err error) {
-	nfiles, err := migrationMax(ctx, db)
+func down(ctx context.Context, source string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
+	nfiles, err := GetMigrationMax(ctx, db, config)
 	if err != nil {
 		return
 	}
@@ -49,11 +49,11 @@ func down(ctx context.Context, source string, start, n int, db *sqlx.DB) (number
 	if err != nil {
 		return
 	}
-	number, executed, err = execDown(ctx, files, start, n, db)
+	number, executed, err = execDown(ctx, files, start, n, db, config)
 	return
 }
 
-func execDown(ctx context.Context, files []string, start, n int, db *sqlx.DB) (number int, executed []string, err error) {
+func execDown(ctx context.Context, files []string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
 	i := len(files)
 	if i == 0 {
 		return
@@ -74,7 +74,7 @@ func execDown(ctx context.Context, files []string, start, n int, db *sqlx.DB) (n
 			tx.Rollback() // nolint
 			return
 		}
-		err = deleteMigrations(ctx, i, tx)
+		err = DeleteMigration(ctx, i, tx, config)
 		if err != nil {
 			tx.Rollback() // nolint
 			return
@@ -90,7 +90,7 @@ func execDown(ctx context.Context, files []string, start, n int, db *sqlx.DB) (n
 	return
 }
 
-func execUp(ctx context.Context, files []string, start, n int, db *sqlx.DB) (number int, executed []string, err error) {
+func execUp(ctx context.Context, files []string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
 	if n == 0 {
 		n = len(files)
 	}
@@ -111,7 +111,7 @@ func execUp(ctx context.Context, files []string, start, n int, db *sqlx.DB) (num
 			tx.Rollback() // nolint
 			return
 		}
-		err = insertMigrations(ctx, i, tx)
+		err = InsertMigration(ctx, i, tx, config)
 		if err != nil {
 			tx.Rollback() // nolint
 			return
@@ -138,12 +138,19 @@ func parsePar(m []string) (n int, err error) {
 	return
 }
 
-// Run parse and performs the required migration
+// Run parses and performs the required migration
 func Run(ctx context.Context, source, url, migrate string) (n int, executed []string, err error) {
-	db, err := open(ctx, url)
+	db, config, err := OpenDatabase(ctx, url)
 	if err != nil {
 		return
 	}
+	defer db.Close()
+
+	return RunWithDatabase(ctx, source, migrate, db, config)
+}
+
+// RunWithDatabase runs migration with an existing database connection
+func RunWithDatabase(ctx context.Context, source, migrate string, db *sqlx.DB, config *DatabaseConfig) (n int, executed []string, err error) {
 	m := strings.Split(migrate, " ")
 	if len(m) > 2 {
 		err = xerrors.New("the number of migration parameters is incorrect")
@@ -157,26 +164,26 @@ func Run(ctx context.Context, source, url, migrate string) (n int, executed []st
 		err = xerrors.Errorf("%v is not a directory", source)
 		return
 	}
-	err = initSchemaMigrations(ctx, db)
+	err = InitSchemaMigrations(ctx, db, config)
 	if err != nil {
 		return
 	}
 	switch m[0] {
 	case "up":
-		n, executed, err = doUp(ctx, m, source, db)
+		n, executed, err = doUp(ctx, m, source, db, config)
 	case "down":
-		n, executed, err = doDown(ctx, m, source, db)
+		n, executed, err = doDown(ctx, m, source, db, config)
 	case "status":
-		n, executed, err = Status(ctx, source, db)
+		n, executed, err = Status(ctx, source, db, config)
 	default:
 		err = xerrors.Errorf("unknown migration command")
 	}
 	return
 }
 
-// Status check db status
-func Status(ctx context.Context, source string, db *sqlx.DB) (int, []string, error) {
-	n, err := migrationMax(ctx, db)
+// Status checks database status
+func Status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
+	n, err := GetMigrationMax(ctx, db, config)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -194,88 +201,24 @@ func Status(ctx context.Context, source string, db *sqlx.DB) (int, []string, err
 	return diff, up[len(up)-diff:], nil
 }
 
-func doDown(ctx context.Context, m []string, source string, db *sqlx.DB) (number int, executed []string, err error) {
+func doDown(ctx context.Context, m []string, source string, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
 	n, err := parsePar(m)
 	if err != nil {
 		return
 	}
-	number, executed, err = down(ctx, source, 0, n, db)
+	number, executed, err = down(ctx, source, 0, n, db, config)
 	return
 }
 
-func doUp(ctx context.Context, m []string, source string, db *sqlx.DB) (number int, executed []string, err error) {
+func doUp(ctx context.Context, m []string, source string, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
 	n, err := parsePar(m)
 	if err != nil {
 		return
 	}
-	start, err := migrationMax(ctx, db)
+	start, err := GetMigrationMax(ctx, db, config)
 	if err != nil {
 		return
 	}
-	number, executed, err = up(ctx, source, start, n, db)
-	return
-}
-
-func open(ctx context.Context, url string) (db *sqlx.DB, err error) {
-	db, err = sqlx.ConnectContext(ctx, "postgres", url)
-	if err != nil {
-		err = xerrors.Errorf("unable to open db: %v", err)
-		return
-	}
-	err = db.PingContext(ctx)
-	if err != nil {
-		err = xerrors.Errorf("error ping db: %v", err)
-	}
-	return
-}
-
-func insertMigrations(ctx context.Context, n int, tx *sqlx.Tx) (err error) {
-	sql := `INSERT INTO schema_migrations ("version") VALUES ($1)`
-	_, err = tx.ExecContext(ctx, sql, n)
-	return
-}
-
-func deleteMigrations(ctx context.Context, n int, tx *sqlx.Tx) (err error) {
-	sql := `DELETE FROM schema_migrations WHERE "version"=$1`
-	_, err = tx.ExecContext(ctx, sql, n)
-	return
-}
-
-func schemaMigrationsExists(ctx context.Context, db *sqlx.DB) (b bool, err error) {
-	s := struct {
-		Select int `db:"count"`
-	}{}
-	err = db.GetContext(ctx, &s, "SELECT count(*) FROM information_schema.tables WHERE table_name = 'schema_migrations'")
-	b = s.Select > 0
-	return
-}
-
-func createMigrationTable(ctx context.Context, db *sqlx.DB) error {
-	sql := `CREATE TABLE IF NOT EXISTS schema_migrations (version bigint NOT NULL, CONSTRAINT schema_migrations_pkey PRIMARY KEY (version))`
-	_, err := db.ExecContext(ctx, sql)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func migrationMax(ctx context.Context, db *sqlx.DB) (m int, err error) {
-	s := struct {
-		Max int `db:"m"`
-	}{}
-	err = db.GetContext(ctx, &s, `SELECT coalesce(max("version"),0) AS m FROM schema_migrations`)
-	m = s.Max
-	return
-}
-
-func initSchemaMigrations(ctx context.Context, db *sqlx.DB) (err error) {
-	var b bool
-	b, err = schemaMigrationsExists(ctx, db)
-	if err != nil {
-		return
-	}
-	if !b {
-		err = createMigrationTable(ctx, db)
-	}
+	number, executed, err = up(ctx, source, start, n, db, config)
 	return
 }
