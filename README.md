@@ -7,7 +7,6 @@ A simple and efficient database migration utility with transaction support for P
 
 ## Features
 
-- **Standard Libraries**: Uses only Go's `flag` package, no external CLI dependencies
 - **Transactions**: Each migration runs in a safe transaction
 - **Multi-Database**: Supports PostgreSQL and SQLite with automatic detection
 - **Environment Variables**: Flexible configuration via env vars or flags
@@ -45,23 +44,38 @@ export ACTION="status"
 
 ```bash
 # PostgreSQL
-./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "status"
+./migration \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -dir "./migrations" \
+  -action "status"
 
 # SQLite file
-./migration -url "sqlite:///path/to/database.db" -dir "./migrations" -action "status"
+./migration \
+  -url "sqlite:///path/to/database.db" \
+  -dir "./migrations" \
+  -action "status"
 
 # SQLite in-memory (for testing)
-./migration -url "sqlite::memory:" -dir "./migrations" -action "status"
+./migration \
+  -url "sqlite::memory:" \
+  -dir "./migrations" \
+  -action "status"
 ```
 
 #### Run All Pending Migrations
 
 ```bash
 # PostgreSQL
-./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "up"
+./migration \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -dir "./migrations" \
+  -action "up"
 
 # SQLite
-./migration -url "sqlite:///path/to/database.db" -dir "./migrations" -action "up"
+./migration \
+  -url "sqlite:///path/to/database.db" \
+  -dir "./migrations" \
+  -action "up"
 ```
 
 #### Run Specific Number of Migrations
@@ -143,7 +157,7 @@ DROP TABLE IF EXISTS users;
 
 ```sql
 -- Add profile fields to users table
-ALTER TABLE users 
+ALTER TABLE users
 ADD COLUMN avatar_url TEXT,
 ADD COLUMN bio TEXT,
 ADD COLUMN is_active BOOLEAN DEFAULT true;
@@ -171,7 +185,7 @@ DROP INDEX IF EXISTS idx_user_sessions_token;
 DROP TABLE IF EXISTS user_sessions;
 
 -- Remove columns (PostgreSQL syntax)
-ALTER TABLE users 
+ALTER TABLE users
 DROP COLUMN IF EXISTS avatar_url,
 DROP COLUMN IF EXISTS bio,
 DROP COLUMN IF EXISTS is_active;
