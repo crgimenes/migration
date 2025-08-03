@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/gosidekick/migration/v3"
 	"github.com/urfave/cli"
 )
 
@@ -59,7 +58,7 @@ func migrate(c *cli.Context) error {
 		echan <- struct{}{}
 	}(ctx)
 	go func(ctx context.Context) {
-		n, executed, err := migration.Run(ctx, dir, dbURL, action)
+		n, executed, err := Run(ctx, dir, dbURL, action)
 		switch strings.Fields(action)[0] {
 		case "status":
 			fmt.Fprintf(c.App.Writer, "check migrations located in %v\n", dir)
