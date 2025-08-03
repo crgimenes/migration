@@ -22,6 +22,96 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Color constants for terminal output
+const (
+	ColorReset  = "\033[0m"
+	ColorRed    = "\033[31m"
+	ColorGreen  = "\033[32m"
+	ColorYellow = "\033[33m"
+	ColorBlue   = "\033[34m"
+	ColorPurple = "\033[35m"
+	ColorCyan   = "\033[36m"
+	ColorWhite  = "\033[37m"
+	ColorBold   = "\033[1m"
+
+	// Bright colors
+	ColorBrightRed    = "\033[91m"
+	ColorBrightGreen  = "\033[92m"
+	ColorBrightYellow = "\033[93m"
+	ColorBrightBlue   = "\033[94m"
+	ColorBrightPurple = "\033[95m"
+	ColorBrightCyan   = "\033[96m"
+)
+
+// isColorSupported checks if the terminal supports color output
+func isColorSupported() bool {
+	term := os.Getenv("TERM")
+	return term != "dumb" && term != ""
+}
+
+// Colored output functions
+func colorize(text, color string) string {
+	if !isColorSupported() {
+		return text
+	}
+	return color + text + ColorReset
+}
+
+func printSuccess(text string) string {
+	return colorize(text, ColorBrightGreen)
+}
+
+func printError(text string) string {
+	return colorize(text, ColorBrightRed)
+}
+
+func printWarning(text string) string {
+	return colorize(text, ColorBrightYellow)
+}
+
+func printInfo(text string) string {
+	return colorize(text, ColorBrightBlue)
+}
+
+func printHeader(text string) string {
+	return colorize(text, ColorBold+ColorBrightCyan)
+}
+
+func printHighlight(text string) string {
+	return colorize(text, ColorBrightPurple)
+}
+
+// printBanner displays a nice banner for the migration tool
+func printBanner() {
+	banner := `
+╔══════════════════════════════════════════════╗
+║              ↑ Migration Tool                ║
+║         Database Migration Assistant         ║
+╚══════════════════════════════════════════════╝
+`
+	fmt.Print(printHeader(banner))
+}
+
+// printSeparator prints a visual separator
+func printSeparator() {
+	fmt.Printf("%s\n", printInfo("────────────────────────────────────────────"))
+}
+
+// formatDuration formats a duration in a human-readable way
+func formatFileSize(filename string) string {
+	if info, err := os.Stat(filename); err == nil {
+		size := info.Size()
+		if size < 1024 {
+			return fmt.Sprintf("(%d bytes)", size)
+		} else if size < 1024*1024 {
+			return fmt.Sprintf("(%.1f KB)", float64(size)/1024)
+		} else {
+			return fmt.Sprintf("(%.1f MB)", float64(size)/(1024*1024))
+		}
+	}
+	return ""
+}
+
 var (
 	// Version of migration app
 	Version string
@@ -297,7 +387,7 @@ func apply(ctx context.Context, path string, tx *sqlx.Tx) error {
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
 			// Log warning but don't override original error
-			fmt.Fprintf(os.Stderr, "Warning: failed to close file %s: %v\n", path, closeErr)
+			fmt.Fprintf(os.Stderr, "%s failed to close file %s: %v\n", printWarning("● Warning:"), path, closeErr)
 		}
 	}()
 
@@ -382,7 +472,7 @@ func Run(ctx context.Context, source, dbURL, action string) (int, []string, erro
 	}
 	defer func() {
 		if closeErr := db.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close database: %v\n", closeErr)
+			fmt.Fprintf(os.Stderr, "%s failed to close database: %v\n", printWarning("● Warning:"), closeErr)
 		}
 	}()
 
@@ -453,16 +543,24 @@ func Execute() error {
 	)
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Migration Tool\n\n")
-		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Options:\n")
+		printBanner()
+		fmt.Fprintf(os.Stderr, "%s %s %s\n\n", printInfo("Usage:"), printHighlight(os.Args[0]), printInfo("[options]"))
+		fmt.Fprintf(os.Stderr, "%s\n", printInfo("Options:"))
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\n%s\n", printInfo("Examples:"))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" -action status"), printInfo("# Check migration status"))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" -action up"), printInfo("# Run all pending migrations"))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" -action \"up 1\""), printInfo("# Run only 1 migration"))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" -action \"down 1\""), printInfo("# Rollback 1 migration"))
 	}
 
 	flag.Parse()
 
 	if *version {
-		fmt.Printf("Migration tool version=%s\n", Version)
+		printBanner()
+		fmt.Printf("%s %s\n", printInfo("Version:"), printHighlight(Version))
+		fmt.Printf("%s %s\n", printInfo("Built for:"), printHighlight("Go 1.24+"))
+		fmt.Printf("%s %s\n", printInfo("Supports:"), printHighlight("PostgreSQL, SQLite"))
 		return nil
 	}
 
@@ -472,19 +570,19 @@ func Execute() error {
 	}
 
 	if *dbURL == "" {
-		fmt.Fprintf(os.Stderr, "Error: database URL is required\n")
+		fmt.Fprintf(os.Stderr, "%s %s\n", printError("● Error:"), "database URL is required")
 		flag.Usage()
 		return fmt.Errorf("database URL is required")
 	}
 
 	if *dir == "" {
-		fmt.Fprintf(os.Stderr, "Error: migrations directory is required\n")
+		fmt.Fprintf(os.Stderr, "%s %s\n", printError("● Error:"), "migrations directory is required")
 		flag.Usage()
 		return fmt.Errorf("migrations directory is required")
 	}
 
 	if *action == "" {
-		fmt.Fprintf(os.Stderr, "Error: action is required\n")
+		fmt.Fprintf(os.Stderr, "%s %s\n", printError("● Error:"), "action is required")
 		flag.Usage()
 		return fmt.Errorf("action is required")
 	}
@@ -503,7 +601,7 @@ func runMigration(dir, dbURL, action string) error {
 		signal.Notify(sigint, os.Interrupt)
 		signal.Notify(sigint, syscall.SIGTERM)
 		<-sigint
-		fmt.Fprintln(os.Stderr, "exiting")
+		fmt.Fprintln(os.Stderr, printWarning("● Exiting..."))
 		echan <- struct{}{}
 	}(ctx)
 
@@ -511,19 +609,56 @@ func runMigration(dir, dbURL, action string) error {
 		n, executed, err := Run(ctx, dir, dbURL, action)
 		switch strings.Fields(action)[0] {
 		case "status":
-			fmt.Printf("check migrations located in %v\n", dir)
-			fmt.Printf("%v needs to be executed\n", n)
-			for _, e := range executed {
-				fmt.Printf("%v\n", e)
+			fmt.Printf("\n%s\n", printHeader("● Migration Status"))
+			printSeparator()
+			fmt.Printf("%s %s\n", printInfo("→ Checking migrations in:"), printHighlight(dir))
+			if n == 0 {
+				fmt.Printf("%s %s\n\n", printSuccess("● All migrations are up to date!"), "No pending migrations.")
+			} else {
+				fmt.Printf("%s %s %s\n", printWarning("● Pending migrations:"), printHighlight(fmt.Sprintf("%d", n)), "need to be executed")
+				printSeparator()
+				for i, e := range executed {
+					size := formatFileSize(e)
+					fmt.Printf("  %s %s %s %s\n",
+						printInfo(fmt.Sprintf("%d.", i+1)),
+						printHighlight(filepath.Base(e)),
+						printInfo(size),
+						printInfo(fmt.Sprintf("(%s)", e)))
+				}
+				fmt.Println()
 			}
 		case "up", "down":
-			fmt.Printf("exec migrations located in %v\n", dir)
-			fmt.Printf("executed %v migrations\n", n)
-			for _, e := range executed {
-				fmt.Printf("%v SUCCESS\n", e)
+			action := strings.Fields(action)[0]
+			actionIcon := "↑"
+			actionName := "UP"
+			if action == "down" {
+				actionIcon = "↓"
+				actionName = "DOWN"
+			}
+
+			fmt.Printf("\n%s %s %s\n", printHeader("● Migration Execution"), actionIcon, actionName)
+			printSeparator()
+			fmt.Printf("%s %s\n", printInfo("→ Location:"), printHighlight(dir))
+
+			if n == 0 {
+				fmt.Printf("%s %s\n\n", printInfo("● Result:"), "No migrations to execute")
+			} else {
+				fmt.Printf("%s %s %s\n", printSuccess("● Executed:"), printHighlight(fmt.Sprintf("%d", n)), "migrations")
+				printSeparator()
+				for i, e := range executed {
+					size := formatFileSize(e)
+					fmt.Printf("  %s %s %s %s %s\n",
+						printSuccess("●"),
+						printInfo(fmt.Sprintf("%d.", i+1)),
+						printHighlight(filepath.Base(e)),
+						printInfo(size),
+						printSuccess("SUCCESS"))
+				}
+				fmt.Println()
 			}
 		}
 		if err != nil {
+			fmt.Printf("\n%s %s\n", printError("● Error:"), err.Error())
 			cerr <- err
 			return
 		}
