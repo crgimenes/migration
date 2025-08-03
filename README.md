@@ -7,7 +7,6 @@ A simple and efficient PostgreSQL migration utility with transaction support, bu
 
 ## Features
 
-- **Standard Libraries**: Uses only Go's `flag` package, no external CLI dependencies
 - **Transactions**: Each migration runs in a safe transaction
 - **PostgreSQL**: Native PostgreSQL support
 - **Environment Variables**: Flexible configuration via env vars or flags
@@ -44,31 +43,46 @@ export ACTION="status"
 #### Check Migration Status
 
 ```bash
-./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "status"
+./migration \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -dir "./migrations" \
+  -action "status"
 ```
 
 #### Run All Pending Migrations
 
 ```bash
-./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "up"
+./migration \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -dir "./migrations" \
+  -action "up"
 ```
 
 #### Run Specific Number of Migrations
 
 ```bash
-./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "up 2"
+./migration \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -dir "./migrations" \
+  -action "up 2"
 ```
 
 #### Revert All Migrations
 
 ```bash
-./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "down"
+./migration \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -dir "./migrations" \
+  -action "down"
 ```
 
 #### Revert Specific Number of Migrations
 
 ```bash
-./migration -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" -dir "./migrations" -action "down 1"
+./migration \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -dir "./migrations" \
+  -action "down 1"
 ```
 
 ### Help and Version
