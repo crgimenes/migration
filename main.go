@@ -18,8 +18,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
-	_ "modernc.org/sqlite"
 	"golang.org/x/xerrors"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -86,8 +86,11 @@ func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
 
 // OpenDatabase opens a database connection with the appropriate driver
 func OpenDatabase(dbURL string, config *DatabaseConfig) (*sqlx.DB, error) {
-	// For SQLite, extract the path from the URL
-	if config.Type == SQLite && dbURL != "sqlite::memory:" {
+	// For SQLite memory database, use the correct driver format
+	if dbURL == "sqlite::memory:" {
+		dbURL = ":memory:"
+	} else if config.Type == SQLite {
+		// For SQLite file databases, extract the path from the URL
 		u, err := url.Parse(dbURL)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse SQLite URL: %w", err)
@@ -145,6 +148,23 @@ func GetMigrationMax(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (
 	}
 
 	return int(max.Int64), nil
+}
+
+// GetMigrationCount returns the number of executed migrations in the database
+func GetMigrationCount(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (int, error) {
+	err := CheckAndCreateMigrationsTable(ctx, db, config)
+	if err != nil {
+		return 0, err
+	}
+
+	var count int
+	query := "SELECT COUNT(*) FROM schema_migrations"
+	err = db.GetContext(ctx, &count, query)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to get migration count: %w", err)
+	}
+
+	return count, nil
 }
 
 // InsertMigration inserts a migration version into the database
@@ -294,7 +314,7 @@ func parsePar(m []string) (int, error) {
 
 // Status checks database status
 func Status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
-	n, err := GetMigrationMax(ctx, db, config)
+	executed, err := GetMigrationCount(ctx, db, config)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -302,7 +322,7 @@ func Status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseCon
 	if err != nil {
 		return 0, nil, err
 	}
-	diff := len(up) - n
+	diff := len(up) - executed
 	if diff == 0 {
 		return 0, nil, nil
 	}
@@ -351,6 +371,17 @@ func RunWithDatabase(ctx context.Context, source, dbURL, action string) (int, []
 		return 0, nil, err
 	}
 	defer db.Close()
+
+	return RunWithExistingDatabase(ctx, source, action, db, config)
+}
+
+// RunWithExistingDatabase executes migrations with the given action using an existing database connection
+func RunWithExistingDatabase(ctx context.Context, source, action string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
+	// Ensure migrations table exists before any operation
+	err := CheckAndCreateMigrationsTable(ctx, db, config)
+	if err != nil {
+		return 0, nil, err
+	}
 
 	m := strings.Fields(action)
 	if len(m) == 0 {

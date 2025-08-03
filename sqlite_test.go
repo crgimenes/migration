@@ -63,7 +63,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test status on empty database
-	n, executed, err := RunWithDatabase(ctx, tempDir, dbURL, "status")
+	n, executed, err := RunWithExistingDatabase(ctx, tempDir, "status", db, config)
 	if err != nil {
 		t.Fatalf("Status command failed: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test running all migrations up
-	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "up")
+	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "up", db, config)
 	if err != nil {
 		t.Fatalf("Up command failed: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test status after migrations
-	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "status")
+	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "status", db, config)
 	if err != nil {
 		t.Fatalf("Status command failed after migration: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test running one migration down
-	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "down 1")
+	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "down 1", db, config)
 	if err != nil {
 		t.Fatalf("Down command failed: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test status after down migration
-	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "status")
+	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "status", db, config)
 	if err != nil {
 		t.Fatalf("Status command failed after down migration: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Clean up: run remaining down migration
-	RunWithDatabase(ctx, tempDir, dbURL, "down")
+	RunWithExistingDatabase(ctx, tempDir, "down", db, config)
 }
 
 func TestPostgreSQLURLParsing(t *testing.T) {

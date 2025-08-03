@@ -14,3 +14,4 @@ coverage.txt
 migration
 migration-*
 release.sh
+AGENTS.md
