@@ -13,8 +13,14 @@ func TestSQLiteSupport(t *testing.T) {
 	// Test with SQLite in-memory database
 	dbURL := "sqlite::memory:"
 
+	// Get database configuration
+	config, err := GetDatabaseConfig(dbURL)
+	if err != nil {
+		t.Fatalf("Failed to get database config: %v", err)
+	}
+
 	// Open database connection that will persist for the whole test
-	db, config, err := OpenDatabase(ctx, dbURL)
+	db, err := OpenDatabase(dbURL, config)
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
@@ -57,7 +63,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test status on empty database
-	n, executed, err := RunWithDatabase(ctx, tempDir, "status", db, config)
+	n, executed, err := RunWithDatabase(ctx, tempDir, dbURL, "status")
 	if err != nil {
 		t.Fatalf("Status command failed: %v", err)
 	}
@@ -70,7 +76,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test running all migrations up
-	n, executed, err = RunWithDatabase(ctx, tempDir, "up", db, config)
+	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "up")
 	if err != nil {
 		t.Fatalf("Up command failed: %v", err)
 	}
@@ -83,7 +89,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test status after migrations
-	n, executed, err = RunWithDatabase(ctx, tempDir, "status", db, config)
+	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "status")
 	if err != nil {
 		t.Fatalf("Status command failed after migration: %v", err)
 	}
@@ -93,7 +99,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test running one migration down
-	n, executed, err = RunWithDatabase(ctx, tempDir, "down 1", db, config)
+	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "down 1")
 	if err != nil {
 		t.Fatalf("Down command failed: %v", err)
 	}
@@ -103,7 +109,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Test status after down migration
-	n, executed, err = RunWithDatabase(ctx, tempDir, "status", db, config)
+	n, executed, err = RunWithDatabase(ctx, tempDir, dbURL, "status")
 	if err != nil {
 		t.Fatalf("Status command failed after down migration: %v", err)
 	}
@@ -113,7 +119,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Clean up: run remaining down migration
-	RunWithDatabase(ctx, tempDir, "down", db, config)
+	RunWithDatabase(ctx, tempDir, dbURL, "down")
 }
 
 func TestPostgreSQLURLParsing(t *testing.T) {
@@ -201,7 +207,12 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			db, config, err := OpenDatabase(ctx, tc.dbURL)
+			config, err := GetDatabaseConfig(tc.dbURL)
+			if err != nil {
+				t.Fatalf("Failed to get database config: %v", err)
+			}
+
+			db, err := OpenDatabase(tc.dbURL, config)
 			if err != nil {
 				t.Fatalf("Failed to open database: %v", err)
 			}
@@ -212,45 +223,24 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 			}
 
 			// Test table creation
-			err = CreateMigrationTable(ctx, db, config)
+			err = CheckAndCreateMigrationsTable(ctx, db, config)
 			if err != nil {
 				t.Errorf("Failed to create migration table: %v", err)
 			}
 
-			// Test table existence check
-			exists, err := SchemaMigrationsExists(ctx, db, config)
-			if err != nil {
-				t.Errorf("Failed to check table existence: %v", err)
-			}
-			if !exists {
-				t.Errorf("Expected migration table to exist")
-			}
-
-			// Test migration max on empty table
+			// Test table existence check (we'll use GetMigrationMax to verify table exists)
 			max, err := GetMigrationMax(ctx, db, config)
 			if err != nil {
-				t.Errorf("Failed to get migration max: %v", err)
+				t.Errorf("Failed to check migration table: %v", err)
 			}
 			if max != 0 {
-				t.Errorf("Expected max migration to be 0, got %d", max)
+				t.Errorf("Expected max migration to be 0 on empty table, got %d", max)
 			}
 
 			// Test inserting a migration
-			tx, err := db.Beginx()
+			err = InsertMigration(ctx, db, config, 1)
 			if err != nil {
-				t.Fatalf("Failed to begin transaction: %v", err)
-			}
-
-			err = InsertMigration(ctx, 1, tx, config)
-			if err != nil {
-				tx.Rollback()
 				t.Errorf("Failed to insert migration: %v", err)
-				return
-			}
-
-			err = tx.Commit()
-			if err != nil {
-				t.Errorf("Failed to commit transaction: %v", err)
 				return
 			}
 
@@ -264,21 +254,9 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 			}
 
 			// Test deleting migration
-			tx, err = db.Beginx()
+			err = DeleteMigration(ctx, db, config, 1)
 			if err != nil {
-				t.Fatalf("Failed to begin transaction for delete: %v", err)
-			}
-
-			err = DeleteMigration(ctx, 1, tx, config)
-			if err != nil {
-				tx.Rollback()
 				t.Errorf("Failed to delete migration: %v", err)
-				return
-			}
-
-			err = tx.Commit()
-			if err != nil {
-				t.Errorf("Failed to commit delete transaction: %v", err)
 				return
 			}
 
