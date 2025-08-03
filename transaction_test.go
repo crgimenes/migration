@@ -2,161 +2,78 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-// Função para testar o comportamento de transação
-func TestTransactionRollback(t *testing.T) {
-	ctx := context.Background()
-	dbURL := "sqlite::memory:"
-
-	// Configurar banco
-	config, err := GetDatabaseConfig(dbURL)
-	if err != nil {
-		fmt.Printf("Erro ao obter config: %v\n", err)
-		return
-	}
-
-	db, err := OpenDatabase(dbURL, config)
-	if err != nil {
-		fmt.Printf("Erro ao abrir banco: %v\n", err)
-		return
-	}
-	defer db.Close()
-
-	// Criar diretório temporário
-	tempDir, err := os.MkdirTemp("", "migration_test")
-	if err != nil {
-		fmt.Printf("Erro ao criar diretório temporário: %v\n", err)
-		return
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Criar uma migração válida
-	validMigration := filepath.Join(tempDir, "001_valid.up.sql")
-	err = os.WriteFile(validMigration, []byte("CREATE TABLE test_table (id INTEGER);"), 0644)
-	if err != nil {
-		fmt.Printf("Erro ao criar migração válida: %v\n", err)
-		return
-	}
-
-	// Criar uma migração inválida (SQL com erro)
-	invalidMigration := filepath.Join(tempDir, "002_invalid.up.sql")
-	err = os.WriteFile(invalidMigration, []byte("CREATE TABLE invalid_syntax error;"), 0644)
-	if err != nil {
-		fmt.Printf("Erro ao criar migração inválida: %v\n", err)
-		return
-	}
-
-	fmt.Println("Testando transação com falha...")
-
-	// Tentar executar up - deve falhar e fazer rollback
-	n, executed, err := RunWithExistingDatabase(ctx, tempDir, "up", db, config)
-	if err != nil {
-		fmt.Printf("Erro esperado ao executar migrações: %v\n", err)
-		fmt.Printf("Migrações executadas antes da falha: %d\n", n)
-		fmt.Printf("Arquivos processados: %v\n", executed)
-	}
-
-	// Verificar se o rollback funcionou - deve haver 0 migrações na tabela
-	count, err := GetMigrationCount(ctx, db, config)
-	if err != nil {
-		fmt.Printf("Erro ao verificar contagem: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Número de migrações no banco após rollback: %d\n", count)
-	if count == 0 {
-		fmt.Println("✅ SUCESSO: Transação foi corretamente revertida!")
-	} else {
-		fmt.Println("❌ FALHA: Transação não foi revertida corretamente!")
-	}
-
-	// Verificar se a tabela não foi criada
-	var tableExists int
-	err = db.GetContext(ctx, &tableExists, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='test_table'")
-	if err != nil {
-		fmt.Printf("Erro ao verificar existência da tabela: %v\n", err)
-		return
-	}
-
-	if tableExists == 0 {
-		fmt.Println("✅ SUCESSO: Tabela não foi criada (rollback funcionou)")
-	} else {
-		fmt.Println("❌ FALHA: Tabela foi criada (rollback não funcionou)")
-	}
-}
-
-// Teste para verificar se as transações fazem rollback corretamente em caso de erro
+// Test to verify if transactions rollback correctly on error
 func TestTransactionRollbackOnError(t *testing.T) {
 	ctx := context.Background()
 	dbURL := "sqlite::memory:"
 
-	// Configurar banco
+	// Setup database
 	config, err := GetDatabaseConfig(dbURL)
 	if err != nil {
-		t.Fatalf("Erro ao obter config: %v", err)
+		t.Fatalf("Failed to get database config: %v", err)
 	}
 
 	db, err := OpenDatabase(dbURL, config)
 	if err != nil {
-		t.Fatalf("Erro ao abrir banco: %v", err)
+		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer db.Close()
 
-	// Criar diretório temporário
+	// Create temporary directory
 	tempDir := t.TempDir()
 
-	// Criar uma migração válida
+	// Create a valid migration
 	validMigration := filepath.Join(tempDir, "001_valid.up.sql")
 	err = os.WriteFile(validMigration, []byte("CREATE TABLE test_table (id INTEGER);"), 0644)
 	if err != nil {
-		t.Fatalf("Erro ao criar migração válida: %v", err)
+		t.Fatalf("Failed to create valid migration: %v", err)
 	}
 
-	// Criar uma migração inválida (SQL com erro)
+	// Create an invalid migration (SQL with error)
 	invalidMigration := filepath.Join(tempDir, "002_invalid.up.sql")
 	err = os.WriteFile(invalidMigration, []byte("CREATE TABLE invalid_syntax error;"), 0644)
 	if err != nil {
-		t.Fatalf("Erro ao criar migração inválida: %v", err)
+		t.Fatalf("Failed to create invalid migration: %v", err)
 	}
 
-	t.Log("Testando transação com falha...")
+	t.Log("Testing transaction with failure...")
 
-	// Tentar executar up - deve falhar e fazer rollback
+	// Try to execute up - should fail and rollback
 	n, executed, err := RunWithExistingDatabase(ctx, tempDir, "up", db, config)
 	if err == nil {
-		t.Fatalf("Esperava erro ao executar migrações, mas obteve sucesso")
+		t.Fatalf("Expected error when executing migrations, but got success")
 	}
 
-	t.Logf("Erro esperado ao executar migrações: %v", err)
-	t.Logf("Migrações executadas antes da falha: %d", n)
-	t.Logf("Arquivos processados: %v", executed)
+	t.Logf("Expected error when executing migrations: %v", err)
+	t.Logf("Migrations executed before failure: %d", n)
+	t.Logf("Files processed: %v", executed)
 
-	// Verificar se o rollback funcionou - deve haver 0 migrações na tabela
+	// Verify if rollback worked - should have 0 migrations in table
 	count, err := GetMigrationCount(ctx, db, config)
 	if err != nil {
-		t.Fatalf("Erro ao verificar contagem: %v", err)
+		t.Fatalf("Failed to verify count: %v", err)
 	}
 
-	t.Logf("Número de migrações no banco após rollback: %d", count)
+	t.Logf("Number of migrations in database after rollback: %d", count)
 	if count != 0 {
-		t.Errorf("Esperava 0 migrações após rollback, mas encontrou %d", count)
+		t.Errorf("Expected 0 migrations after rollback, but found %d", count)
 	}
 
-	// Verificar se a tabela não foi criada (rollback deve ter desfeito tudo)
+	// Verify if table was not created (rollback should have undone everything)
 	var tableExists int
 	err = db.GetContext(ctx, &tableExists, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='test_table'")
 	if err != nil {
-		t.Fatalf("Erro ao verificar existência da tabela: %v", err)
+		t.Fatalf("Failed to verify table existence: %v", err)
 	}
 
 	if tableExists != 0 {
-		t.Errorf("Esperava que a tabela não existisse após rollback, mas ela existe")
+		t.Errorf("Expected table not to exist after rollback, but it exists")
 	}
 
-	t.Log("✅ SUCESSO: Transação foi corretamente revertida!")
+	t.Log("SUCCESS: Transaction was correctly reverted!")
 }
