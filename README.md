@@ -13,6 +13,23 @@ A simple and efficient database migration utility with transaction support for P
 - **Version Control**: Tracks executed migrations
 - **Rollback**: Support for reverting migrations
 
+## ⚠️ Important Notice
+
+**This tool automatically creates and manages a `schema_migrations` table in your database.**
+
+- The table stores migration version numbers to track which migrations have been executed
+- **Table Structure**: `schema_migrations (version INTEGER PRIMARY KEY)`
+- **Auto-Creation**: If the table doesn't exist, it will be created automatically on first run
+- **No Conflicts**: The table name is standard and shouldn't conflict with your application tables
+- **Manual Management**: You can query this table to see migration status: `SELECT * FROM schema_migrations ORDER BY version;`
+
+**What this means for you:**
+
+- ✅ **Safe**: The tool only manages its own tracking table
+- ✅ **Automatic**: No manual setup required
+- ✅ **Standard**: Uses common migration table naming convention
+- ⚠️ **Awareness**: Be aware this table will exist in your database schema
+
 ## Installation
 
 ```bash
@@ -116,7 +133,7 @@ export ACTION="status"
 
 Migration files must follow the naming convention:
 
-```
+```text
 001_create_users_table.up.sql
 001_create_users_table.down.sql
 002_add_email_index.up.sql
