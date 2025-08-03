@@ -167,10 +167,38 @@ func GetMigrationCount(ctx context.Context, db *sqlx.DB, config *DatabaseConfig)
 	return count, nil
 }
 
+// GetMigrationMaxTx returns the maximum migration version in the database using a transaction
+func GetMigrationMaxTx(ctx context.Context, tx *sqlx.Tx) (int, error) {
+	var max sql.NullInt64
+	query := "SELECT MAX(version) FROM schema_migrations"
+	err := tx.GetContext(ctx, &max, query)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to get max migration version: %w", err)
+	}
+
+	if !max.Valid {
+		return 0, nil
+	}
+
+	return int(max.Int64), nil
+}
+
+// GetMigrationCountTx returns the number of executed migrations in the database using a transaction
+func GetMigrationCountTx(ctx context.Context, tx *sqlx.Tx) (int, error) {
+	var count int
+	query := "SELECT COUNT(*) FROM schema_migrations"
+	err := tx.GetContext(ctx, &count, query)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to get migration count: %w", err)
+	}
+
+	return count, nil
+}
+
 // InsertMigration inserts a migration version into the database
-func InsertMigration(ctx context.Context, db *sqlx.DB, config *DatabaseConfig, version int) error {
+func InsertMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, version int) error {
 	query := "INSERT INTO schema_migrations (version) VALUES (" + config.Placeholder + ")"
-	_, err := db.ExecContext(ctx, query, version)
+	_, err := tx.ExecContext(ctx, query, version)
 	if err != nil {
 		return xerrors.Errorf("failed to insert migration version %d: %w", version, err)
 	}
@@ -178,9 +206,9 @@ func InsertMigration(ctx context.Context, db *sqlx.DB, config *DatabaseConfig, v
 }
 
 // DeleteMigration deletes a migration version from the database
-func DeleteMigration(ctx context.Context, db *sqlx.DB, config *DatabaseConfig, version int) error {
+func DeleteMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, version int) error {
 	query := "DELETE FROM schema_migrations WHERE version = " + config.Placeholder
-	_, err := db.ExecContext(ctx, query, version)
+	_, err := tx.ExecContext(ctx, query, version)
 	if err != nil {
 		return xerrors.Errorf("failed to delete migration version %d: %w", version, err)
 	}
@@ -203,17 +231,17 @@ func downFiles(dir string, n int) (files []string, err error) {
 	return
 }
 
-func up(ctx context.Context, source string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
+func up(ctx context.Context, source string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
 	files, err := upFiles(source)
 	if err != nil {
 		return
 	}
-	number, executed, err = execUp(ctx, files, start, n, db, config)
+	number, executed, err = execUp(ctx, files, start, n, tx, config)
 	return
 }
 
-func down(ctx context.Context, source string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
-	nfiles, err := GetMigrationMax(ctx, db, config)
+func down(ctx context.Context, source string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
+	nfiles, err := GetMigrationMaxTx(ctx, tx)
 	if err != nil {
 		return
 	}
@@ -224,20 +252,20 @@ func down(ctx context.Context, source string, start, n int, db *sqlx.DB, config 
 	if err != nil {
 		return
 	}
-	number, executed, err = execDown(ctx, files, start, n, db, config)
+	number, executed, err = execDown(ctx, files, start, n, tx, config)
 	return
 }
 
-func execUp(ctx context.Context, files []string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
+func execUp(ctx context.Context, files []string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
 	if n == 0 {
 		n = len(files) - start
 	}
 	for i := start; i < len(files) && i < start+n; i++ {
 		v := version(files[i])
-		if err = apply(ctx, files[i], db); err != nil {
+		if err = apply(ctx, files[i], tx); err != nil {
 			return
 		}
-		if err = InsertMigration(ctx, db, config, v); err != nil {
+		if err = InsertMigration(ctx, tx, config, v); err != nil {
 			return
 		}
 		executed = append(executed, files[i])
@@ -246,16 +274,16 @@ func execUp(ctx context.Context, files []string, start, n int, db *sqlx.DB, conf
 	return
 }
 
-func execDown(ctx context.Context, files []string, start, n int, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
+func execDown(ctx context.Context, files []string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
 	if n == 0 {
 		n = len(files) - start
 	}
 	for i := start; i < len(files) && i < start+n; i++ {
 		v := version(files[i])
-		if err = apply(ctx, files[i], db); err != nil {
+		if err = apply(ctx, files[i], tx); err != nil {
 			return
 		}
-		if err = DeleteMigration(ctx, db, config, v); err != nil {
+		if err = DeleteMigration(ctx, tx, config, v); err != nil {
 			return
 		}
 		executed = append(executed, files[i])
@@ -271,7 +299,7 @@ func version(path string) int {
 	return ver
 }
 
-func apply(ctx context.Context, path string, db *sqlx.DB) error {
+func apply(ctx context.Context, path string, tx *sqlx.Tx) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return xerrors.Errorf("failed to open migration file %s: %w", path, err)
@@ -283,19 +311,9 @@ func apply(ctx context.Context, path string, db *sqlx.DB) error {
 		return xerrors.Errorf("failed to read migration file %s: %w", path, err)
 	}
 
-	tx, err := db.BeginTxx(ctx, nil)
-	if err != nil {
-		return xerrors.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
 	_, err = tx.ExecContext(ctx, string(content))
 	if err != nil {
 		return xerrors.Errorf("failed to execute migration %s: %w", path, err)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return xerrors.Errorf("failed to commit migration %s: %w", path, err)
 	}
 
 	return nil
@@ -332,16 +350,16 @@ func Status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseCon
 	return diff, up[len(up)-diff:], nil
 }
 
-func doDown(ctx context.Context, m []string, source string, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
+func doDown(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig, db *sqlx.DB) (number int, executed []string, err error) {
 	n, err := parsePar(m)
 	if err != nil {
 		return
 	}
-	number, executed, err = down(ctx, source, 0, n, db, config)
+	number, executed, err = down(ctx, source, 0, n, tx, config)
 	return
 }
 
-func doUp(ctx context.Context, m []string, source string, db *sqlx.DB, config *DatabaseConfig) (number int, executed []string, err error) {
+func doUp(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig, db *sqlx.DB) (number int, executed []string, err error) {
 	n, err := parsePar(m)
 	if err != nil {
 		return
@@ -350,7 +368,7 @@ func doUp(ctx context.Context, m []string, source string, db *sqlx.DB, config *D
 	if err != nil {
 		return
 	}
-	number, executed, err = up(ctx, source, start, n, db, config)
+	number, executed, err = up(ctx, source, start, n, tx, config)
 	return
 }
 
@@ -388,16 +406,41 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 		return 0, nil, xerrors.New("action cannot be empty")
 	}
 
+	// For status operations, no transaction is needed as they are read-only
+	if m[0] == "status" {
+		return Status(ctx, source, db, config)
+	}
+
+	// For up and down operations, use a single transaction for all changes
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, nil, xerrors.Errorf("failed to begin global transaction: %w", err)
+	}
+	defer tx.Rollback() // This will be a no-op if tx.Commit() succeeds
+
+	var number int
+	var executed []string
+
 	switch m[0] {
 	case "up":
-		return doUp(ctx, m, source, db, config)
+		number, executed, err = doUp(ctx, m, source, tx, config, db)
 	case "down":
-		return doDown(ctx, m, source, db, config)
-	case "status":
-		return Status(ctx, source, db, config)
+		number, executed, err = doDown(ctx, m, source, tx, config, db)
 	default:
 		return 0, nil, xerrors.Errorf("unknown action: %s", m[0])
 	}
+
+	if err != nil {
+		// Transaction will be rolled back automatically by defer
+		return 0, nil, err
+	}
+
+	// Commit the transaction only if everything succeeded
+	if err = tx.Commit(); err != nil {
+		return 0, nil, xerrors.Errorf("failed to commit global transaction: %w", err)
+	}
+
+	return number, executed, nil
 }
 
 // Execute starts the migration app CLI

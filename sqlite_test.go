@@ -238,9 +238,22 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 			}
 
 			// Test inserting a migration
-			err = InsertMigration(ctx, db, config, 1)
+			tx, err := db.BeginTxx(ctx, nil)
 			if err != nil {
+				t.Errorf("Failed to begin transaction: %v", err)
+				return
+			}
+
+			err = InsertMigration(ctx, tx, config, 1)
+			if err != nil {
+				tx.Rollback()
 				t.Errorf("Failed to insert migration: %v", err)
+				return
+			}
+
+			err = tx.Commit()
+			if err != nil {
+				t.Errorf("Failed to commit transaction: %v", err)
 				return
 			}
 
@@ -254,9 +267,22 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 			}
 
 			// Test deleting migration
-			err = DeleteMigration(ctx, db, config, 1)
+			tx, err = db.BeginTxx(ctx, nil)
 			if err != nil {
+				t.Errorf("Failed to begin transaction: %v", err)
+				return
+			}
+
+			err = DeleteMigration(ctx, tx, config, 1)
+			if err != nil {
+				tx.Rollback()
 				t.Errorf("Failed to delete migration: %v", err)
+				return
+			}
+
+			err = tx.Commit()
+			if err != nil {
+				t.Errorf("Failed to commit transaction: %v", err)
 				return
 			}
 
