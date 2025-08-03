@@ -214,7 +214,11 @@ func TestDatabaseIntegration(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Failed to open database: %v", err)
 				}
-				defer db.Close()
+				defer func() {
+					if closeErr := db.Close(); closeErr != nil {
+						t.Logf("Warning: failed to close database: %v", closeErr)
+					}
+				}()
 
 				// Test up migrations
 				n, exec, err := RunWithExistingDatabase(ctx, source, "up", db, config)
@@ -229,7 +233,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Test status after up
-				n, exec, err = RunWithExistingDatabase(ctx, source, "status", db, config)
+				n, _, err = RunWithExistingDatabase(ctx, source, "status", db, config)
 				if err != nil {
 					t.Fatalf("status check failed: %v", err)
 				}
@@ -238,7 +242,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Test partial down
-				n, exec, err = RunWithExistingDatabase(ctx, source, "down 1", db, config)
+				n, _, err = RunWithExistingDatabase(ctx, source, "down 1", db, config)
 				if err != nil {
 					t.Fatalf("partial down failed: %v", err)
 				}
@@ -247,7 +251,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Test status after partial down
-				n, exec, err = RunWithExistingDatabase(ctx, source, "status", db, config)
+				n, _, err = RunWithExistingDatabase(ctx, source, "status", db, config)
 				if err != nil {
 					t.Fatalf("status check after partial down failed: %v", err)
 				}
@@ -256,7 +260,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Clean up: run remaining down migrations
-				RunWithExistingDatabase(ctx, source, "down", db, config)
+				_, _, _ = RunWithExistingDatabase(ctx, source, "down", db, config)
 
 			} else {
 				// PostgreSQL tests (regular Run function)
@@ -273,7 +277,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Test status after up
-				n, exec, err = Run(ctx, source, tc.dbURL, "status")
+				n, _, err = Run(ctx, source, tc.dbURL, "status")
 				if err != nil {
 					t.Fatalf("status check failed: %v", err)
 				}
@@ -282,7 +286,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Test partial down
-				n, exec, err = Run(ctx, source, tc.dbURL, "down 1")
+				n, _, err = Run(ctx, source, tc.dbURL, "down 1")
 				if err != nil {
 					t.Fatalf("partial down failed: %v", err)
 				}
@@ -291,7 +295,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Test status after partial down
-				n, exec, err = Run(ctx, source, tc.dbURL, "status")
+				n, _, err = Run(ctx, source, tc.dbURL, "status")
 				if err != nil {
 					t.Fatalf("status check after partial down failed: %v", err)
 				}
@@ -300,7 +304,7 @@ func TestDatabaseIntegration(t *testing.T) {
 				}
 
 				// Clean up: run remaining down migrations
-				Run(ctx, source, tc.dbURL, "down")
+				_, _, _ = Run(ctx, source, tc.dbURL, "down")
 			}
 		})
 	}

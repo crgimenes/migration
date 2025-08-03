@@ -24,7 +24,11 @@ func TestSQLiteSupport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Logf("Warning: failed to close database: %v", closeErr)
+		}
+	}()
 
 	// Create temporary migration files
 	tempDir := t.TempDir()
@@ -119,7 +123,7 @@ func TestSQLiteSupport(t *testing.T) {
 	}
 
 	// Clean up: run remaining down migration
-	RunWithExistingDatabase(ctx, tempDir, "down", db, config)
+	_, _, _ = RunWithExistingDatabase(ctx, tempDir, "down", db, config)
 }
 
 func TestPostgreSQLURLParsing(t *testing.T) {
@@ -216,7 +220,11 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to open database: %v", err)
 			}
-			defer db.Close()
+			defer func() {
+				if closeErr := db.Close(); closeErr != nil {
+					t.Logf("Warning: failed to close database: %v", closeErr)
+				}
+			}()
 
 			if config.Type != tc.dbType {
 				t.Errorf("Expected database type %v, got %v", tc.dbType, config.Type)
@@ -246,7 +254,9 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 
 			err = InsertMigration(ctx, tx, config, 1)
 			if err != nil {
-				tx.Rollback()
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					t.Logf("Warning: failed to rollback transaction: %v", rollbackErr)
+				}
 				t.Errorf("Failed to insert migration: %v", err)
 				return
 			}
@@ -275,7 +285,9 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 
 			err = DeleteMigration(ctx, tx, config, 1)
 			if err != nil {
-				tx.Rollback()
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					t.Logf("Warning: failed to rollback transaction: %v", rollbackErr)
+				}
 				t.Errorf("Failed to delete migration: %v", err)
 				return
 			}

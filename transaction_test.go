@@ -22,7 +22,11 @@ func TestTransactionRollbackOnError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Logf("Warning: failed to close database: %v", closeErr)
+		}
+	}()
 
 	// Create temporary directory
 	tempDir := t.TempDir()

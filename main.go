@@ -104,7 +104,9 @@ func OpenDatabase(dbURL string, config *DatabaseConfig) (*sqlx.DB, error) {
 	}
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, xerrors.Errorf("failed to ping database: %w (also failed to close: %v)", err, closeErr)
+		}
 		return nil, xerrors.Errorf("failed to ping database: %w", err)
 	}
 
@@ -181,18 +183,6 @@ func GetMigrationMaxTx(ctx context.Context, tx *sqlx.Tx) (int, error) {
 	}
 
 	return int(max.Int64), nil
-}
-
-// GetMigrationCountTx returns the number of executed migrations in the database using a transaction
-func GetMigrationCountTx(ctx context.Context, tx *sqlx.Tx) (int, error) {
-	var count int
-	query := "SELECT COUNT(*) FROM schema_migrations"
-	err := tx.GetContext(ctx, &count, query)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to get migration count: %w", err)
-	}
-
-	return count, nil
 }
 
 // InsertMigration inserts a migration version into the database
@@ -304,7 +294,12 @@ func apply(ctx context.Context, path string, tx *sqlx.Tx) error {
 	if err != nil {
 		return xerrors.Errorf("failed to open migration file %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			// Log warning but don't override original error
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file %s: %v\n", path, closeErr)
+		}
+	}()
 
 	content, err := io.ReadAll(file)
 	if err != nil {
@@ -330,8 +325,8 @@ func parsePar(m []string) (int, error) {
 	return n, nil
 }
 
-// Status checks database status
-func Status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
+// status checks database status
+func status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
 	executed, err := GetMigrationCount(ctx, db, config)
 	if err != nil {
 		return 0, nil, err
@@ -350,7 +345,8 @@ func Status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseCon
 	return diff, up[len(up)-diff:], nil
 }
 
-func doDown(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig, db *sqlx.DB) (number int, executed []string, err error) {
+// doDown handles down migrations within a transaction
+func doDown(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
 	n, err := parsePar(m)
 	if err != nil {
 		return
@@ -359,12 +355,13 @@ func doDown(ctx context.Context, m []string, source string, tx *sqlx.Tx, config 
 	return
 }
 
-func doUp(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig, db *sqlx.DB) (number int, executed []string, err error) {
+// doUp handles up migrations within a transaction
+func doUp(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
 	n, err := parsePar(m)
 	if err != nil {
 		return
 	}
-	start, err := GetMigrationMax(ctx, db, config)
+	start, err := GetMigrationMaxTx(ctx, tx)
 	if err != nil {
 		return
 	}
@@ -372,13 +369,8 @@ func doUp(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *D
 	return
 }
 
-// Run executes migrations with the given action
+// Run executes migrations with the given action using database abstraction
 func Run(ctx context.Context, source, dbURL, action string) (int, []string, error) {
-	return RunWithDatabase(ctx, source, dbURL, action)
-}
-
-// RunWithDatabase executes migrations with the given action using database abstraction
-func RunWithDatabase(ctx context.Context, source, dbURL, action string) (int, []string, error) {
 	config, err := GetDatabaseConfig(dbURL)
 	if err != nil {
 		return 0, nil, err
@@ -388,7 +380,11 @@ func RunWithDatabase(ctx context.Context, source, dbURL, action string) (int, []
 	if err != nil {
 		return 0, nil, err
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close database: %v\n", closeErr)
+		}
+	}()
 
 	return RunWithExistingDatabase(ctx, source, action, db, config)
 }
@@ -408,7 +404,7 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 
 	// For status operations, no transaction is needed as they are read-only
 	if m[0] == "status" {
-		return Status(ctx, source, db, config)
+		return status(ctx, source, db, config)
 	}
 
 	// For up and down operations, use a single transaction for all changes
@@ -416,16 +412,19 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 	if err != nil {
 		return 0, nil, xerrors.Errorf("failed to begin global transaction: %w", err)
 	}
-	defer tx.Rollback() // This will be a no-op if tx.Commit() succeeds
+	defer func() {
+		// Ignore rollback errors after successful commit
+		_ = tx.Rollback()
+	}()
 
 	var number int
 	var executed []string
 
 	switch m[0] {
 	case "up":
-		number, executed, err = doUp(ctx, m, source, tx, config, db)
+		number, executed, err = doUp(ctx, m, source, tx, config)
 	case "down":
-		number, executed, err = doDown(ctx, m, source, tx, config, db)
+		number, executed, err = doDown(ctx, m, source, tx, config)
 	default:
 		return 0, nil, xerrors.Errorf("unknown action: %s", m[0])
 	}
