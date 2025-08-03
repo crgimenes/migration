@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
-	"golang.org/x/xerrors"
 	_ "modernc.org/sqlite"
 )
 
@@ -59,7 +59,7 @@ func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
 
 	u, err := url.Parse(dbURL)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to parse database URL: %w", err)
+		return nil, fmt.Errorf("failed to parse database URL: %w", err)
 	}
 
 	switch strings.ToLower(u.Scheme) {
@@ -80,7 +80,7 @@ func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
 			CreateTableSQL:      `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
 		}, nil
 	default:
-		return nil, xerrors.Errorf("unsupported database scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported database scheme: %s", u.Scheme)
 	}
 }
 
@@ -93,21 +93,21 @@ func OpenDatabase(dbURL string, config *DatabaseConfig) (*sqlx.DB, error) {
 		// For SQLite file databases, extract the path from the URL
 		u, err := url.Parse(dbURL)
 		if err != nil {
-			return nil, xerrors.Errorf("failed to parse SQLite URL: %w", err)
+			return nil, fmt.Errorf("failed to parse SQLite URL: %w", err)
 		}
 		dbURL = u.Path
 	}
 
 	db, err := sqlx.Open(config.DriverName, dbURL)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	if err := db.Ping(); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
-			return nil, xerrors.Errorf("failed to ping database: %w (also failed to close: %v)", err, closeErr)
+			return nil, fmt.Errorf("failed to ping database: %w (also failed to close: %v)", err, closeErr)
 		}
-		return nil, xerrors.Errorf("failed to ping database: %w", err)
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	return db, nil
@@ -118,13 +118,13 @@ func CheckAndCreateMigrationsTable(ctx context.Context, db *sqlx.DB, config *Dat
 	var count int
 	err := db.GetContext(ctx, &count, config.CheckTableExistsSQL)
 	if err != nil {
-		return xerrors.Errorf("failed to check migrations table: %w", err)
+		return fmt.Errorf("failed to check migrations table: %w", err)
 	}
 
 	if count == 0 {
 		_, err = db.ExecContext(ctx, config.CreateTableSQL)
 		if err != nil {
-			return xerrors.Errorf("failed to create migrations table: %w", err)
+			return fmt.Errorf("failed to create migrations table: %w", err)
 		}
 	}
 
@@ -142,7 +142,7 @@ func GetMigrationMax(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (
 	query := "SELECT MAX(version) FROM schema_migrations"
 	err = db.GetContext(ctx, &max, query)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get max migration version: %w", err)
+		return 0, fmt.Errorf("failed to get max migration version: %w", err)
 	}
 
 	if !max.Valid {
@@ -163,7 +163,7 @@ func GetMigrationCount(ctx context.Context, db *sqlx.DB, config *DatabaseConfig)
 	query := "SELECT COUNT(*) FROM schema_migrations"
 	err = db.GetContext(ctx, &count, query)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get migration count: %w", err)
+		return 0, fmt.Errorf("failed to get migration count: %w", err)
 	}
 
 	return count, nil
@@ -175,7 +175,7 @@ func GetMigrationMaxTx(ctx context.Context, tx *sqlx.Tx) (int, error) {
 	query := "SELECT MAX(version) FROM schema_migrations"
 	err := tx.GetContext(ctx, &max, query)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get max migration version: %w", err)
+		return 0, fmt.Errorf("failed to get max migration version: %w", err)
 	}
 
 	if !max.Valid {
@@ -190,7 +190,7 @@ func InsertMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, v
 	query := "INSERT INTO schema_migrations (version) VALUES (" + config.Placeholder + ")"
 	_, err := tx.ExecContext(ctx, query, version)
 	if err != nil {
-		return xerrors.Errorf("failed to insert migration version %d: %w", version, err)
+		return fmt.Errorf("failed to insert migration version %d: %w", version, err)
 	}
 	return nil
 }
@@ -200,7 +200,7 @@ func DeleteMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, v
 	query := "DELETE FROM schema_migrations WHERE version = " + config.Placeholder
 	_, err := tx.ExecContext(ctx, query, version)
 	if err != nil {
-		return xerrors.Errorf("failed to delete migration version %d: %w", version, err)
+		return fmt.Errorf("failed to delete migration version %d: %w", version, err)
 	}
 	return nil
 }
@@ -292,7 +292,7 @@ func version(path string) int {
 func apply(ctx context.Context, path string, tx *sqlx.Tx) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return xerrors.Errorf("failed to open migration file %s: %w", path, err)
+		return fmt.Errorf("failed to open migration file %s: %w", path, err)
 	}
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
@@ -303,12 +303,12 @@ func apply(ctx context.Context, path string, tx *sqlx.Tx) error {
 
 	content, err := io.ReadAll(file)
 	if err != nil {
-		return xerrors.Errorf("failed to read migration file %s: %w", path, err)
+		return fmt.Errorf("failed to read migration file %s: %w", path, err)
 	}
 
 	_, err = tx.ExecContext(ctx, string(content))
 	if err != nil {
-		return xerrors.Errorf("failed to execute migration %s: %w", path, err)
+		return fmt.Errorf("failed to execute migration %s: %w", path, err)
 	}
 
 	return nil
@@ -320,7 +320,7 @@ func parsePar(m []string) (int, error) {
 	}
 	n, err := strconv.Atoi(m[1])
 	if err != nil {
-		return 0, xerrors.Errorf("failed to parse number parameter: %w", err)
+		return 0, fmt.Errorf("failed to parse number parameter: %w", err)
 	}
 	return n, nil
 }
@@ -399,7 +399,7 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 
 	m := strings.Fields(action)
 	if len(m) == 0 {
-		return 0, nil, xerrors.New("action cannot be empty")
+		return 0, nil, errors.New("action cannot be empty")
 	}
 
 	// For status operations, no transaction is needed as they are read-only
@@ -410,7 +410,7 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 	// For up and down operations, use a single transaction for all changes
 	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
-		return 0, nil, xerrors.Errorf("failed to begin global transaction: %w", err)
+		return 0, nil, fmt.Errorf("failed to begin global transaction: %w", err)
 	}
 	defer func() {
 		// Ignore rollback errors after successful commit
@@ -426,7 +426,7 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 	case "down":
 		number, executed, err = doDown(ctx, m, source, tx, config)
 	default:
-		return 0, nil, xerrors.Errorf("unknown action: %s", m[0])
+		return 0, nil, fmt.Errorf("unknown action: %s", m[0])
 	}
 
 	if err != nil {
@@ -436,7 +436,7 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 
 	// Commit the transaction only if everything succeeded
 	if err = tx.Commit(); err != nil {
-		return 0, nil, xerrors.Errorf("failed to commit global transaction: %w", err)
+		return 0, nil, fmt.Errorf("failed to commit global transaction: %w", err)
 	}
 
 	return number, executed, nil

@@ -2,7 +2,7 @@ BINARY_NAME=$(shell basename $(shell pwd))
 
 export CGO_ENABLED=0
 GIT_TAG := $(shell git describe --tags --always)
-BUILD_FLAGS := -trimpath -ldflags "-X 'main.GitTag=$(GIT_TAG)' -s -w -extldflags '-static -w'"
+BUILD_FLAGS := -trimpath -ldflags "-X 'main.Version=$(GIT_TAG)' -s -w -extldflags '-static -w'"
 
 .PHONY: all build build-cross clean
 
