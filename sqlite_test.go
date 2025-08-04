@@ -236,15 +236,6 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 				t.Errorf("Failed to create migration table: %v", err)
 			}
 
-			// Test table existence check (we'll use GetMigrationMax to verify table exists)
-			max, err := GetMigrationMax(ctx, db, config)
-			if err != nil {
-				t.Errorf("Failed to check migration table: %v", err)
-			}
-			if max != 0 {
-				t.Errorf("Expected max migration to be 0 on empty table, got %d", max)
-			}
-
 			// Test inserting a migration
 			tx, err := db.BeginTxx(ctx, nil)
 			if err != nil {
@@ -267,15 +258,6 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 				return
 			}
 
-			// Test getting max after insert
-			max, err = GetMigrationMax(ctx, db, config)
-			if err != nil {
-				t.Errorf("Failed to get migration max after insert: %v", err)
-			}
-			if max != 1 {
-				t.Errorf("Expected max migration to be 1, got %d", max)
-			}
-
 			// Test deleting migration
 			tx, err = db.BeginTxx(ctx, nil)
 			if err != nil {
@@ -296,15 +278,6 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 			if err != nil {
 				t.Errorf("Failed to commit transaction: %v", err)
 				return
-			}
-
-			// Test getting max after delete
-			max, err = GetMigrationMax(ctx, db, config)
-			if err != nil {
-				t.Errorf("Failed to get migration max after delete: %v", err)
-			}
-			if max != 0 {
-				t.Errorf("Expected max migration to be 0 after delete, got %d", max)
 			}
 		})
 	}

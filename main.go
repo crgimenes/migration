@@ -221,27 +221,6 @@ func CheckAndCreateMigrationsTable(ctx context.Context, db *sqlx.DB, config *Dat
 	return nil
 }
 
-// GetMigrationMax returns the maximum migration version in the database
-func GetMigrationMax(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (int, error) {
-	err := CheckAndCreateMigrationsTable(ctx, db, config)
-	if err != nil {
-		return 0, err
-	}
-
-	var max sql.NullInt64
-	query := "SELECT MAX(version) FROM schema_migrations"
-	err = db.GetContext(ctx, &max, query)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get max migration version: %w", err)
-	}
-
-	if !max.Valid {
-		return 0, nil
-	}
-
-	return int(max.Int64), nil
-}
-
 // GetMigrationCount returns the number of executed migrations in the database
 func GetMigrationCount(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (int, error) {
 	err := CheckAndCreateMigrationsTable(ctx, db, config)
