@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"context"
@@ -7,12 +7,10 @@ import (
 	"testing"
 )
 
-// Test to verify if transactions rollback correctly on error
 func TestTransactionRollbackOnError(t *testing.T) {
 	ctx := context.Background()
 	dbURL := "sqlite::memory:"
 
-	// Setup database
 	config, err := GetDatabaseConfig(dbURL)
 	if err != nil {
 		t.Fatalf("Failed to get database config: %v", err)
@@ -23,22 +21,20 @@ func TestTransactionRollbackOnError(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if closeErr := db.Close(); closeErr != nil {
+		closeErr := db.Close()
+		if closeErr != nil {
 			t.Logf("Warning: failed to close database: %v", closeErr)
 		}
 	}()
 
-	// Create temporary directory
 	tempDir := t.TempDir()
 
-	// Create a valid migration
 	validMigration := filepath.Join(tempDir, "001_valid.up.sql")
 	err = os.WriteFile(validMigration, []byte("CREATE TABLE test_table (id INTEGER);"), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create valid migration: %v", err)
 	}
 
-	// Create an invalid migration (SQL with error)
 	invalidMigration := filepath.Join(tempDir, "002_invalid.up.sql")
 	err = os.WriteFile(invalidMigration, []byte("CREATE TABLE invalid_syntax error;"), 0644)
 	if err != nil {

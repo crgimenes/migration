@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	// drivers for tests
 	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
 )
@@ -75,7 +74,6 @@ func Test_downFiles(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	// Skip test if DATABASE_URL is not set
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		t.Skip("DATABASE_URL environment variable not set, skipping PostgreSQL integration test")
@@ -84,10 +82,8 @@ func TestRun(t *testing.T) {
 	ctx := context.Background()
 	source := "./testdata"
 
-	// Test invalid directory (no migration files found is not an error)
 	n, exec, err := Run(ctx, "./test", dbURL, "up")
 	t.Logf("Result from empty directory: n=%d, exec=%v, err=%v", n, exec, err)
-	// This is actually expected behavior - no migrations to run is not an error
 	if err != nil {
 		t.Logf("Got error as expected: %v", err)
 	}
@@ -95,15 +91,12 @@ func TestRun(t *testing.T) {
 		t.Errorf("Expected 0 migrations executed, got %d", n)
 	}
 
-	// Test file instead of directory (also results in no files found)
-	n2, exec2, err := Run(ctx, "./main.go", dbURL, "up")
+	n2, exec2, err := Run(ctx, "./core.go", dbURL, "up")
 	t.Logf("Result from file path: n=%d, exec=%v, err=%v", n2, exec2, err)
-	// This is also expected behavior - no migrations found is not an error
 	if n2 != 0 {
 		t.Errorf("Expected 0 migrations executed, got %d", n2)
 	}
 
-	// Test up migrations
 	n, exec, err = Run(ctx, source, dbURL, "up")
 	if err != nil {
 		t.Fatalf("up migrations failed: %v", err)
@@ -115,7 +108,6 @@ func TestRun(t *testing.T) {
 		t.Errorf("expected 3 executed files, got %v", len(exec))
 	}
 
-	// Test status after up
 	n, exec, err = Run(ctx, source, dbURL, "status")
 	if err != nil {
 		t.Fatalf("status check failed: %v", err)
@@ -127,7 +119,6 @@ func TestRun(t *testing.T) {
 		t.Errorf("expected 0 pending files, got %v", len(exec))
 	}
 
-	// Test down migrations
 	n, exec, err = Run(ctx, source, dbURL, "down")
 	if err != nil {
 		t.Fatalf("down migrations failed: %v", err)
@@ -139,7 +130,6 @@ func TestRun(t *testing.T) {
 		t.Errorf("expected 3 reverted files, got %v", len(exec))
 	}
 
-	// Test status after down
 	n, exec, err = Run(ctx, source, dbURL, "status")
 	if err != nil {
 		t.Fatalf("status check after down failed: %v", err)
@@ -151,14 +141,12 @@ func TestRun(t *testing.T) {
 		t.Errorf("expected 3 pending files after down, got %v", len(exec))
 	}
 
-	// Test invalid command
 	_, _, err = Run(ctx, source, dbURL, "invalid")
 	if err == nil {
 		t.Error("expected error for invalid command")
 	}
 }
 
-// TestDatabaseIntegration tests both PostgreSQL and SQLite with appropriate migrations
 func TestDatabaseIntegration(t *testing.T) {
 	ctx := context.Background()
 
@@ -195,11 +183,9 @@ func TestDatabaseIntegration(t *testing.T) {
 			if tc.useTestData {
 				source = "./testdata"
 			} else {
-				// Create SQLite-compatible migrations
 				tempDir := t.TempDir()
 				source = tempDir
 
-				// Create SQLite-compatible migration files
 				createSQLiteTestFiles(t, tempDir)
 			}
 
@@ -215,12 +201,12 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Fatalf("Failed to open database: %v", err)
 				}
 				defer func() {
-					if closeErr := db.Close(); closeErr != nil {
+					closeErr := db.Close()
+					if closeErr != nil {
 						t.Logf("Warning: failed to close database: %v", closeErr)
 					}
 				}()
 
-				// Test up migrations
 				n, exec, err := RunWithExistingDatabase(ctx, source, "up", db, config)
 				if err != nil {
 					t.Fatalf("up migrations failed: %v", err)
@@ -232,7 +218,6 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 3 executed files, got %v", len(exec))
 				}
 
-				// Test status after up
 				n, _, err = RunWithExistingDatabase(ctx, source, "status", db, config)
 				if err != nil {
 					t.Fatalf("status check failed: %v", err)
@@ -241,7 +226,6 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 0 pending migrations, got %v", n)
 				}
 
-				// Test partial down
 				n, _, err = RunWithExistingDatabase(ctx, source, "down 1", db, config)
 				if err != nil {
 					t.Fatalf("partial down failed: %v", err)
@@ -250,7 +234,6 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 1 migration reverted, got %v", n)
 				}
 
-				// Test status after partial down
 				n, _, err = RunWithExistingDatabase(ctx, source, "status", db, config)
 				if err != nil {
 					t.Fatalf("status check after partial down failed: %v", err)
@@ -259,12 +242,9 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 1 pending migration, got %v", n)
 				}
 
-				// Clean up: run remaining down migrations
 				_, _, _ = RunWithExistingDatabase(ctx, source, "down", db, config)
 
 			} else {
-				// PostgreSQL tests (regular Run function)
-				// Test up migrations
 				n, exec, err := Run(ctx, source, tc.dbURL, "up")
 				if err != nil {
 					t.Fatalf("up migrations failed: %v", err)
@@ -276,7 +256,6 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 3 executed files, got %v", len(exec))
 				}
 
-				// Test status after up
 				n, _, err = Run(ctx, source, tc.dbURL, "status")
 				if err != nil {
 					t.Fatalf("status check failed: %v", err)
@@ -285,7 +264,6 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 0 pending migrations, got %v", n)
 				}
 
-				// Test partial down
 				n, _, err = Run(ctx, source, tc.dbURL, "down 1")
 				if err != nil {
 					t.Fatalf("partial down failed: %v", err)
@@ -294,7 +272,6 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 1 migration reverted, got %v", n)
 				}
 
-				// Test status after partial down
 				n, _, err = Run(ctx, source, tc.dbURL, "status")
 				if err != nil {
 					t.Fatalf("status check after partial down failed: %v", err)
@@ -303,14 +280,12 @@ func TestDatabaseIntegration(t *testing.T) {
 					t.Errorf("expected 1 pending migration, got %v", n)
 				}
 
-				// Clean up: run remaining down migrations
 				_, _, _ = Run(ctx, source, tc.dbURL, "down")
 			}
 		})
 	}
 }
 
-// createSQLiteTestFiles creates SQLite-compatible test migration files
 func createSQLiteTestFiles(t *testing.T, tempDir string) {
 	files := []struct {
 		name    string

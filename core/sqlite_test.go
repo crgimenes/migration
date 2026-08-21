@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"context"
@@ -10,10 +10,8 @@ import (
 func TestSQLiteSupport(t *testing.T) {
 	ctx := context.Background()
 
-	// Test with SQLite in-memory database
 	dbURL := "sqlite::memory:"
 
-	// Get database configuration
 	config, err := GetDatabaseConfig(dbURL)
 	if err != nil {
 		t.Fatalf("Failed to get database config: %v", err)
@@ -25,21 +23,19 @@ func TestSQLiteSupport(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if closeErr := db.Close(); closeErr != nil {
+		closeErr := db.Close()
+		if closeErr != nil {
 			t.Logf("Warning: failed to close database: %v", closeErr)
 		}
 	}()
 
-	// Create temporary migration files
 	tempDir := t.TempDir()
 
-	// Create test migration files with proper SQL for SQLite
 	upFile1 := filepath.Join(tempDir, "001_create_test_table.up.sql")
 	downFile1 := filepath.Join(tempDir, "001_create_test_table.down.sql")
 	upFile2 := filepath.Join(tempDir, "002_add_index.up.sql")
 	downFile2 := filepath.Join(tempDir, "002_add_index.down.sql")
 
-	// Write migration content with SQLite-compatible SQL
 	err = os.WriteFile(upFile1, []byte(`
 		CREATE TABLE test_table (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +62,6 @@ func TestSQLiteSupport(t *testing.T) {
 		t.Fatalf("Failed to create second down migration file: %v", err)
 	}
 
-	// Test status on empty database
 	n, executed, err := RunWithExistingDatabase(ctx, tempDir, "status", db, config)
 	if err != nil {
 		t.Fatalf("Status command failed: %v", err)
@@ -79,7 +74,6 @@ func TestSQLiteSupport(t *testing.T) {
 		t.Errorf("Expected 2 migration files listed, got %d", len(executed))
 	}
 
-	// Test running all migrations up
 	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "up", db, config)
 	if err != nil {
 		t.Fatalf("Up command failed: %v", err)
@@ -92,7 +86,6 @@ func TestSQLiteSupport(t *testing.T) {
 		t.Errorf("Expected 2 migration files executed, got %d", len(executed))
 	}
 
-	// Test status after migrations
 	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "status", db, config)
 	if err != nil {
 		t.Fatalf("Status command failed after migration: %v", err)
@@ -102,7 +95,6 @@ func TestSQLiteSupport(t *testing.T) {
 		t.Errorf("Expected 0 pending migrations after up, got %d", n)
 	}
 
-	// Test running one migration down
 	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "down 1", db, config)
 	if err != nil {
 		t.Fatalf("Down command failed: %v", err)
@@ -112,7 +104,6 @@ func TestSQLiteSupport(t *testing.T) {
 		t.Errorf("Expected 1 migration reverted, got %d", n)
 	}
 
-	// Test status after down migration
 	n, executed, err = RunWithExistingDatabase(ctx, tempDir, "status", db, config)
 	if err != nil {
 		t.Fatalf("Status command failed after down migration: %v", err)
@@ -122,7 +113,6 @@ func TestSQLiteSupport(t *testing.T) {
 		t.Errorf("Expected 1 pending migration after down, got %d", n)
 	}
 
-	// Clean up: run remaining down migration
 	_, _, _ = RunWithExistingDatabase(ctx, tempDir, "down", db, config)
 }
 
@@ -221,7 +211,8 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 				t.Fatalf("Failed to open database: %v", err)
 			}
 			defer func() {
-				if closeErr := db.Close(); closeErr != nil {
+				closeErr := db.Close()
+				if closeErr != nil {
 					t.Logf("Warning: failed to close database: %v", closeErr)
 				}
 			}()
@@ -230,13 +221,11 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 				t.Errorf("Expected database type %v, got %v", tc.dbType, config.Type)
 			}
 
-			// Test table creation
 			err = CheckAndCreateMigrationsTable(ctx, db, config)
 			if err != nil {
 				t.Errorf("Failed to create migration table: %v", err)
 			}
 
-			// Test inserting a migration
 			tx, err := db.BeginTxx(ctx, nil)
 			if err != nil {
 				t.Errorf("Failed to begin transaction: %v", err)
@@ -245,7 +234,8 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 
 			err = InsertMigration(ctx, tx, config, 1)
 			if err != nil {
-				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				rollbackErr := tx.Rollback()
+				if rollbackErr != nil {
 					t.Logf("Warning: failed to rollback transaction: %v", rollbackErr)
 				}
 				t.Errorf("Failed to insert migration: %v", err)
@@ -258,7 +248,6 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 				return
 			}
 
-			// Test deleting migration
 			tx, err = db.BeginTxx(ctx, nil)
 			if err != nil {
 				t.Errorf("Failed to begin transaction: %v", err)
@@ -267,7 +256,8 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 
 			err = DeleteMigration(ctx, tx, config, 1)
 			if err != nil {
-				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				rollbackErr := tx.Rollback()
+				if rollbackErr != nil {
 					t.Logf("Warning: failed to rollback transaction: %v", rollbackErr)
 				}
 				t.Errorf("Failed to delete migration: %v", err)
