@@ -132,6 +132,7 @@ func Execute() error {
 		printBanner()
 		fmt.Fprintf(os.Stderr, "%s %s\n\n", printInfo("Usage:"), printHighlight(os.Args[0]+" [options] <command> [args]"))
 		fmt.Fprintf(os.Stderr, "%s\n", printInfo("Commands:"))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("(none)"), printInfo("# Open the GUI (default since v5)"))
 		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("up [n] | down [n] | status"), printInfo("# Run or inspect migrations"))
 		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("snapshot"), printInfo("# Record the live schema (PostgreSQL)"))
 		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("diff"), printInfo("# Show drift vs the last snapshot (exit 2 when found)"))
@@ -160,17 +161,17 @@ func Execute() error {
 		return nil
 	}
 
-	if *gui {
-		if *dbURL == "" || *dir == "" {
-			fmt.Fprintf(os.Stderr, "%s %s\n", printError("● Error:"), "-gui needs -url and -dir")
-			return errors.New("-gui needs -url and -dir")
-		}
-		return runGUI(*dbURL, *dir, *debug)
-	}
-
 	action := *actionFlag
 	if flag.NArg() > 0 {
 		action = strings.Join(flag.Args(), " ")
+	}
+
+	// v5 default: no action opens the GUI (missing url/dir become a
+	// visible connection form there, not a terminal complaint). The
+	// terminal with explicit commands and -json is the automation and
+	// AI interface.
+	if *gui || action == "" {
+		return guiLauncher(*dbURL, *dir, *debug)
 	}
 
 	err := checkRequired(*dbURL, *dir, action)
@@ -202,16 +203,15 @@ func Execute() error {
 	}
 }
 
+// guiLauncher is swappable so tests can assert the no-argument default
+// without opening a window.
+var guiLauncher = runGUI
+
 func checkRequired(dbURL, dir, action string) error {
-	verb := ""
-	if action != "" {
-		verb = strings.Fields(action)[0]
-	}
+	verb := strings.Fields(action)[0]
 
 	missing := ""
 	switch {
-	case action == "":
-		missing = "action is required"
 	case dir == "":
 		missing = "migrations directory is required"
 	case dbURL == "" && verb != "report":

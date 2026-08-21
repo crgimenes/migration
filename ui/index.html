@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -7,36 +7,107 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-	<div class="ident">
-		<h1>migration</h1>
-		<div class="target">
-			<span id="db-target" class="mono"></span>
-			<span id="dir-target" class="mono"></span>
-		</div>
+<nav id="sidebar" aria-label="Screens">
+	<div id="brand">migration</div>
+	<div id="attached" title="">
+		<span class="dot" id="attached-dot"></span>
+		<span id="attached-name">not connected</span>
 	</div>
-	<button id="refresh" title="Refresh (Cmd+R)">Refresh</button>
-</header>
+	<button type="button" class="nav-item" data-screen="status">Status</button>
+	<button type="button" class="nav-item" data-screen="drift">Drift</button>
+	<button type="button" class="nav-item" data-screen="report">Report</button>
+	<button type="button" class="nav-item" data-screen="connection">Connection</button>
+	<div class="nav-bottom" id="app-version"></div>
+</nav>
 
-<main>
-	<section class="card" id="status-card">
+<main id="content">
+	<section id="screen-status" hidden>
 		<h2>Status</h2>
-		<div id="status-body" class="body">Loading...</div>
+		<p id="status-line" aria-live="polite"></p>
+		<ul id="status-files" class="files"></ul>
+		<div class="buttons">
+			<button type="button" id="revert-open" class="destructive">Revert last migration...</button>
+			<button type="button" id="up-open">Run pending migrations...</button>
+		</div>
+		<div id="up-confirm" class="confirm" hidden>
+			<p id="up-confirm-text"></p>
+			<pre id="up-sql" class="sql"></pre>
+			<div class="buttons">
+				<button type="button" id="up-copy">Copy SQL</button>
+				<button type="button" id="up-cancel">Cancel</button>
+				<button type="button" id="up-run">Confirm run</button>
+			</div>
+		</div>
+		<div id="down-confirm" class="confirm" hidden>
+			<p id="down-confirm-text"></p>
+			<pre id="down-sql" class="sql"></pre>
+			<div class="buttons">
+				<button type="button" id="down-copy">Copy SQL</button>
+				<button type="button" id="down-cancel">Cancel</button>
+				<button type="button" id="down-run" class="destructive">Confirm revert</button>
+			</div>
+		</div>
+		<p id="status-result" class="hint" aria-live="polite"></p>
 	</section>
 
-	<section class="card" id="drift-card">
+	<section id="screen-drift" hidden>
 		<h2>Drift</h2>
-		<div id="drift-body" class="body">Loading...</div>
+		<p id="drift-line" aria-live="polite"></p>
+		<div id="drift-changes"></div>
+		<div class="buttons" id="drift-actions" hidden>
+			<button type="button" id="capture-open">Capture drift...</button>
+		</div>
+		<div id="capture-confirm" class="confirm" hidden>
+			<label>Migration name
+				<input type="text" id="capture-name" autocomplete="off" spellcheck="false"
+					placeholder="captured_changes">
+			</label>
+			<p id="capture-confirm-text"></p>
+			<h3 id="capture-up-name" class="mono"></h3>
+			<pre id="capture-up-sql" class="sql"></pre>
+			<h3 id="capture-down-name" class="mono"></h3>
+			<pre id="capture-down-sql" class="sql"></pre>
+			<div class="buttons">
+				<button type="button" id="capture-copy">Copy SQL</button>
+				<button type="button" id="capture-cancel">Cancel</button>
+				<button type="button" id="capture-run">Confirm capture</button>
+			</div>
+		</div>
+		<p id="drift-result" class="hint" aria-live="polite"></p>
 	</section>
 
-	<section class="card" id="report-card">
+	<section id="screen-report" hidden>
 		<h2>Report</h2>
 		<div class="report-controls">
 			<label>From <select id="report-from"></select></label>
 			<label>To <select id="report-to"></select></label>
-			<button id="report-run">Compare</button>
+			<button type="button" id="report-run">Compare</button>
 		</div>
-		<div id="report-body" class="body"></div>
+		<div id="report-body" aria-live="polite"></div>
+	</section>
+
+	<section id="screen-connection" hidden>
+		<h2>Connection</h2>
+		<form id="conn-form">
+			<label>Database URL
+				<input type="text" id="conn-url" autocomplete="off" spellcheck="false"
+					placeholder="postgres://user:password@localhost:5432/db">
+			</label>
+			<label>Migrations directory
+				<span class="dir-row">
+					<input type="text" id="conn-dir" autocomplete="off" spellcheck="false"
+						placeholder="./migrations">
+					<button type="button" id="conn-choose">Choose...</button>
+				</span>
+			</label>
+			<div class="buttons">
+				<button type="submit" id="conn-connect">Connect</button>
+			</div>
+		</form>
+		<p id="conn-result" class="hint" aria-live="polite"></p>
+		<p class="hint">PostgreSQL and SQLite URLs work; drift detection and
+			reports need PostgreSQL. The form prefills from DATABASE_URL and
+			MIGRATIONS when set.</p>
 	</section>
 </main>
 

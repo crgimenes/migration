@@ -273,6 +273,12 @@ func execDown(ctx context.Context, files []string, start, n int, tx *sqlx.Tx, co
 	return
 }
 
+// FileVersion extracts the numeric version prefix of a migration file
+// name; 0 when the name has no valid prefix.
+func FileVersion(path string) int {
+	return version(path)
+}
+
 func version(path string) int {
 	_, file := filepath.Split(path)
 	v, _, _ := strings.Cut(file, "_")

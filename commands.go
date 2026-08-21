@@ -164,32 +164,32 @@ func cmdDiff(ctx context.Context, dbURL, dir string, jsonOut bool) error {
 	return errDrift
 }
 
-func cmdCapture(ctx context.Context, dbURL, dir, name string, jsonOut bool) error {
-	db, config, err := openPostgres(dbURL)
-	if err != nil {
-		return err
-	}
-	defer closeDB(db)
+// captureOutcome is shared by the CLI and the GUI: what capturing the
+// current drift produced.
+type captureOutcome struct {
+	Drift    bool          `json:"drift"`
+	Version  int           `json:"version,omitempty"`
+	UpFile   string        `json:"up_file,omitempty"`
+	DownFile string        `json:"down_file,omitempty"`
+	Snapshot string        `json:"snapshot_file,omitempty"`
+	Changes  []diff.Change `json:"changes"`
+}
 
+// captureDrift turns the current drift into a migration pair, registers
+// the version as applied (the live database already has these changes),
+// and snapshots the new state.
+func captureDrift(ctx context.Context, db *sqlx.DB, config *core.DatabaseConfig, dir, name string) (*captureOutcome, error) {
 	_, snap, live, changes, err := liveDiff(ctx, db, dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(changes) == 0 {
-		if jsonOut {
-			return emitJSON(struct {
-				Action string `json:"action"`
-				Drift  bool   `json:"drift"`
-				OK     bool   `json:"ok"`
-			}{"capture", false, true})
-		}
-		fmt.Printf("%s %s\n", printSuccess("● No drift detected."), "Nothing to capture.")
-		return nil
+		return &captureOutcome{Drift: false, Changes: []diff.Change{}}, nil
 	}
 
 	current, err := core.GetMigrationMax(ctx, db, config)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	next := current + 1
 
@@ -198,41 +198,61 @@ func cmdCapture(ctx context.Context, dbURL, dir, name string, jsonOut bool) erro
 	downFile := filepath.Join(dir, fmt.Sprintf("%03d_%s.down.sql", next, name))
 	err = writeMigrationPair(upFile, downFile, upSQL, downSQL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// The captured changes are already applied in the live database, so
-	// the new version is registered as executed instead of pending.
 	err = markApplied(ctx, db, config, next)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	snapPath, err := snapshot.Write(dir, next, live)
+	if err != nil {
+		return nil, err
+	}
+
+	return &captureOutcome{
+		Drift:    true,
+		Version:  next,
+		UpFile:   upFile,
+		DownFile: downFile,
+		Snapshot: snapPath,
+		Changes:  changes,
+	}, nil
+}
+
+func cmdCapture(ctx context.Context, dbURL, dir, name string, jsonOut bool) error {
+	db, config, err := openPostgres(dbURL)
+	if err != nil {
+		return err
+	}
+	defer closeDB(db)
+
+	outcome, err := captureDrift(ctx, db, config, dir, name)
 	if err != nil {
 		return err
 	}
 
 	if jsonOut {
 		return emitJSON(struct {
-			Action   string        `json:"action"`
-			Drift    bool          `json:"drift"`
-			Version  int           `json:"version"`
-			UpFile   string        `json:"up_file"`
-			DownFile string        `json:"down_file"`
-			Snapshot string        `json:"snapshot_file"`
-			Changes  []diff.Change `json:"changes"`
-			OK       bool          `json:"ok"`
-		}{"capture", true, next, upFile, downFile, snapPath, changes, true})
+			Action string `json:"action"`
+			*captureOutcome
+			OK bool `json:"ok"`
+		}{"capture", outcome, true})
+	}
+
+	if !outcome.Drift {
+		fmt.Printf("%s %s\n", printSuccess("● No drift detected."), "Nothing to capture.")
+		return nil
 	}
 
 	fmt.Printf("\n%s\n", printHeader("● Drift Captured"))
 	printSeparator()
-	printChanges(changes)
-	fmt.Printf("%s %s\n", printSuccess("● Migration written:"), printHighlight(upFile))
-	fmt.Printf("%s %s\n", printSuccess("● Rollback written:"), printHighlight(downFile))
-	fmt.Printf("%s %s\n", printSuccess("● Snapshot written:"), printHighlight(snapPath))
-	fmt.Printf("%s version %d registered as applied; review the generated SQL before committing.\n\n", printInfo("→"), next)
+	printChanges(outcome.Changes)
+	fmt.Printf("%s %s\n", printSuccess("● Migration written:"), printHighlight(outcome.UpFile))
+	fmt.Printf("%s %s\n", printSuccess("● Rollback written:"), printHighlight(outcome.DownFile))
+	fmt.Printf("%s %s\n", printSuccess("● Snapshot written:"), printHighlight(outcome.Snapshot))
+	fmt.Printf("%s version %d registered as applied; review the generated SQL before committing.\n\n", printInfo("→"), outcome.Version)
 	return nil
 }
 

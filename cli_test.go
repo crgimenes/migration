@@ -159,6 +159,60 @@ func TestReportBetweenSnapshots(t *testing.T) {
 	}
 }
 
+// Since v5 a bare `migration` (no action) opens the GUI instead of
+// complaining about missing parameters; the terminal with explicit
+// commands is the automation interface.
+func TestExecuteDefaultOpensGUI(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-user@envhost/envdb")
+	t.Setenv("MIGRATIONS", "/env/migrations")
+	t.Setenv("ACTION", "")
+
+	origArgs := os.Args
+	origLauncher := guiLauncher
+	defer func() {
+		os.Args = origArgs
+		guiLauncher = origLauncher
+	}()
+
+	var gotURL, gotDir string
+	called := 0
+	guiLauncher = func(dbURL, dir string, debug bool) error {
+		called++
+		gotURL = dbURL
+		gotDir = dir
+		return nil
+	}
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantURL string
+		wantDir string
+	}{
+		{"bare invocation uses env", []string{"migration"}, "postgres://env-user@envhost/envdb", "/env/migrations"},
+		{"flags without action", []string{"migration", "-url", "sqlite::memory:", "-dir", "/tmp/m"}, "sqlite::memory:", "/tmp/m"},
+		{"explicit -gui", []string{"migration", "-gui"}, "postgres://env-user@envhost/envdb", "/env/migrations"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+			os.Args = tt.args
+			before := called
+
+			err := Execute()
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if called != before+1 {
+				t.Fatal("GUI launcher was not called")
+			}
+			if gotURL != tt.wantURL || gotDir != tt.wantDir {
+				t.Errorf("launcher got (%q, %q), want (%q, %q)", gotURL, gotDir, tt.wantURL, tt.wantDir)
+			}
+		})
+	}
+}
+
 func TestExecute(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("MIGRATIONS", "")
@@ -180,7 +234,6 @@ func TestExecute(t *testing.T) {
 	}{
 		{"version flag", []string{"migration", "-version"}, ""},
 		{"help flag", []string{"migration", "-help"}, ""},
-		{"missing action", []string{"migration"}, "action is required"},
 		{"missing dir", []string{"migration", "-url", dbURL, "up"}, "migrations directory is required"},
 		{"missing url", []string{"migration", "-dir", migrations, "up"}, "database URL is required"},
 		{"legacy action flag", []string{"migration", "-url", dbURL, "-dir", migrations, "-action", "up"}, ""},

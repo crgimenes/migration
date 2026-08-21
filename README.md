@@ -39,10 +39,15 @@ go build -o migration
 
 ## Usage
 
+Since v5, running `migration` with no command opens the graphical
+interface; the terminal with explicit commands is the automation and AI
+interface.
+
 ```text
-migration [options] <command> [args]
+migration [options] [command] [args]
 
 Commands:
+  (none)              open the GUI (default since v5)
   up [n]              run all (or n) pending migrations
   down [n]            revert all (or n) applied migrations
   status              list pending migrations
@@ -56,8 +61,23 @@ Options:
   -dir     migrations directory (or MIGRATIONS)
   -json    machine-readable JSON output
   -no-snapshot   skip the automatic snapshot after up/down
+  -gui     open the GUI even when other parameters are present
+  -debug   enable diagnostics (GUI devtools)
   -action  legacy action flag (or ACTION); prefer the positional form
 ```
+
+### GUI
+
+`migration` alone opens a native-feeling window: a sidebar with the
+connected database always visible, and screens for Status, Drift,
+Report, and Connection. The connection form prefills from
+`DATABASE_URL` and `MIGRATIONS` when they are set.
+
+Every operation is available on screen. Mutating actions (run pending
+migrations, revert the last one, capture drift) are two-step: the
+confirmation shows the exact SQL that will run, with a Copy SQL button,
+before anything touches the database. Destructive confirmations are
+red and never sit where Enter can hit them by accident.
 
 ### Running migrations
 
