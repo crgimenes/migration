@@ -16,3 +16,5 @@ migration-*
 release.sh
 AGENTS.md
 TODO.md
+dist/
+.DS_Store

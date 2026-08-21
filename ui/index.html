@@ -88,6 +88,20 @@
 
 	<section id="screen-connection" hidden>
 		<h2>Connection</h2>
+		<div id="saved-block" hidden>
+			<h3>Saved connections</h3>
+			<ul id="saved-list" class="saved"></ul>
+			<div id="remove-confirm" class="confirm" hidden>
+				<p id="remove-confirm-text"></p>
+				<p class="hint">Only its (connection ...) line is removed; the
+					rest of the config file is untouched.</p>
+				<div class="buttons">
+					<button type="button" id="remove-cancel">Cancel</button>
+					<button type="button" id="remove-run" class="destructive">Confirm removal</button>
+				</div>
+			</div>
+		</div>
+		<h3>New connection</h3>
 		<form id="conn-form">
 			<label>Database URL
 				<input type="text" id="conn-url" autocomplete="off" spellcheck="false"

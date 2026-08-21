@@ -166,7 +166,48 @@ func (s *guiService) Connect(dbURL, dir string) (guiInfo, error) {
 	s.dir = dir
 	s.mu.Unlock()
 
+	// Persist for the next launch. The connection itself succeeded, so
+	// a save failure degrades to a warning, not a failed Connect.
+	err = appendConnection(dbURL, dir, "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s failed to save connection: %v\n", printWarning("● Warning:"), err)
+	}
+
 	return s.Info()
+}
+
+// Connections lists the saved connections for the picker in the
+// Connection screen.
+func (s *guiService) Connections() ([]SavedConnection, error) {
+	conns, err := loadConnections()
+	if err != nil {
+		return nil, err
+	}
+	if conns == nil {
+		conns = []SavedConnection{}
+	}
+	return conns, nil
+}
+
+// ConnectSaved connects to a previously saved connection.
+func (s *guiService) ConnectSaved(index int) (guiInfo, error) {
+	conns, err := loadConnections()
+	if err != nil {
+		return guiInfo{}, err
+	}
+	if index < 0 || index >= len(conns) {
+		return guiInfo{}, fmt.Errorf("connection %d does not exist", index)
+	}
+	return s.Connect(conns[index].URL, conns[index].Dir)
+}
+
+// RemoveConnection deletes a saved connection from the config file.
+func (s *guiService) RemoveConnection(index int) ([]SavedConnection, error) {
+	err := removeConnection(index)
+	if err != nil {
+		return nil, err
+	}
+	return s.Connections()
 }
 
 func (s *guiService) Status() (guiStatus, error) {
@@ -543,6 +584,20 @@ func installGUIMenu(w glaze.WebView) {
 }
 
 func runGUI(dbURL, dir string, debug bool) error {
+	// No target from flags or env: fall back to the first saved
+	// connection. No ping here - a dead server surfaces as a visible
+	// error in the cards, and the window still opens instantly.
+	if dbURL == "" || dir == "" {
+		saved, err := loadConnections()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s failed to load saved connections: %v\n", printWarning("● Warning:"), err)
+		}
+		if len(saved) > 0 {
+			dbURL = saved[0].URL
+			dir = saved[0].Dir
+		}
+	}
+
 	baseURL, err := startUIServer()
 	if err != nil {
 		return err

@@ -156,6 +156,35 @@ migration -json diff
 # {"action":"diff","snapshot":3,"drift":true,"changes":[{"kind":"column_added",...}],"ok":true}
 ```
 
+## Configuration
+
+The GUI remembers connections in a [Filo](https://github.com/crgimenes/filo)
+config file at the platform's own location:
+
+| platform | path |
+|----------|------|
+| macOS    | `~/Library/Application Support/migration/init.filo` |
+| Linux    | `$XDG_CONFIG_HOME/migration/init.filo` |
+| Windows  | `%AppData%\migration\init.filo` |
+
+A `migration_init.filo` in the current directory takes precedence, for
+development. One form per connection:
+
+```text
+; migration configuration
+(connection "postgres://user:password@host:5432/db" "./migrations" "production")
+```
+
+The file is yours: the app only appends new connections and removes a
+single line when you ask; comments and anything else you write in it are
+never touched. On launch without parameters, the first saved connection
+is used.
+
+The macOS location (not `~/.config`) is deliberate: it is what the App
+Store sandbox remaps into the app container, so sandboxed builds work
+unchanged. `assets/entitlements.plist` carries the sandbox entitlements
+(network client, user-selected files) for store-ready signing.
+
 ## Migration files
 
 Files follow the naming convention:

@@ -60,6 +60,8 @@ function showScreen(name) {
 		loadDrift();
 	} else if (name === "report") {
 		loadReportControls();
+	} else if (name === "connection") {
+		loadSavedConnections();
 	}
 }
 
@@ -318,6 +320,71 @@ async function runReport() {
 
 // --- connection ----------------------------------------------------------
 
+let removeIndex = -1;
+
+async function loadSavedConnections() {
+	const block = $("saved-block");
+	const list = $("saved-list");
+	$("remove-confirm").hidden = true;
+	try {
+		const conns = await window.migration_connections();
+		if (conns.length === 0) {
+			block.hidden = true;
+			return;
+		}
+		list.innerHTML = "";
+		conns.forEach((c, i) => {
+			const li = document.createElement("li");
+			li.innerHTML =
+				`<span class="saved-ident"><span class="title">${esc(c.title)}</span>` +
+				`<span class="detail">${esc(c.url)} &middot; ${esc(c.dir)}</span></span>`;
+
+			const removeBtn = document.createElement("button");
+			removeBtn.type = "button";
+			removeBtn.className = "destructive";
+			removeBtn.textContent = "Remove...";
+			removeBtn.addEventListener("click", () => {
+				removeIndex = i;
+				$("remove-confirm-text").textContent =
+					`Remove the saved connection "${c.title}" (${c.url})?`;
+				$("remove-confirm").hidden = false;
+			});
+
+			const connectBtn = document.createElement("button");
+			connectBtn.type = "button";
+			connectBtn.textContent = "Connect";
+			connectBtn.addEventListener("click", async () => {
+				const result = $("conn-result");
+				result.textContent = "Connecting...";
+				try {
+					await window.migration_connect_saved(i);
+					result.innerHTML = '<span class="ok">Connected.</span>';
+					await loadInfo();
+					showScreen("status");
+				} catch (err) {
+					showError(result, err);
+				}
+			});
+
+			li.appendChild(removeBtn);
+			li.appendChild(connectBtn);
+			list.appendChild(li);
+		});
+		block.hidden = false;
+	} catch (err) {
+		showError($("conn-result"), err);
+	}
+}
+
+async function removeSaved() {
+	try {
+		await window.migration_remove_connection(removeIndex);
+		await loadSavedConnections();
+	} catch (err) {
+		showError($("conn-result"), err);
+	}
+}
+
 async function connect(ev) {
 	ev.preventDefault();
 	const result = $("conn-result");
@@ -408,6 +475,10 @@ $("capture-name").addEventListener("input", updateCaptureNames);
 
 $("report-run").addEventListener("click", runReport);
 $("conn-form").addEventListener("submit", connect);
+$("remove-cancel").addEventListener("click", () => {
+	$("remove-confirm").hidden = true;
+});
+$("remove-run").addEventListener("click", removeSaved);
 $("conn-choose").addEventListener("click", async () => {
 	try {
 		const dir = await window.migration_pick_directory($("conn-dir").value.trim());

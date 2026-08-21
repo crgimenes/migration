@@ -95,6 +95,7 @@ func TestGUIServiceUnconfigured(t *testing.T) {
 }
 
 func TestGUIServiceConnect(t *testing.T) {
+	tempConfig(t)
 	migrations := t.TempDir()
 	writeSQLiteMigrations(t, migrations)
 	dbURL := "sqlite://" + filepath.Join(t.TempDir(), "conn.db")
@@ -144,6 +145,7 @@ func TestGUIServiceDriftRequiresPostgres(t *testing.T) {
 }
 
 func TestGUIServiceDriftAndReport(t *testing.T) {
+	tempConfig(t)
 	ctx := context.Background()
 	dbURL := scratchDatabase(t, "migration_gui_svc")
 	migrations := t.TempDir()
@@ -205,6 +207,7 @@ func TestGUIServiceDriftAndReport(t *testing.T) {
 }
 
 func TestGUIServiceRunFlowSQLite(t *testing.T) {
+	tempConfig(t)
 	migrations := t.TempDir()
 	writeSQLiteMigrations(t, migrations)
 	dbURL := "sqlite://" + filepath.Join(t.TempDir(), "flow.db")
@@ -259,6 +262,7 @@ func TestGUIServiceRunFlowSQLite(t *testing.T) {
 }
 
 func TestGUIServiceCaptureFlowPostgres(t *testing.T) {
+	tempConfig(t)
 	ctx := context.Background()
 	dbURL := scratchDatabase(t, "migration_gui_capture")
 	migrations := t.TempDir()
@@ -315,6 +319,57 @@ func TestGUIServiceCaptureFlowPostgres(t *testing.T) {
 	}
 	if d.Drift {
 		t.Errorf("expected no drift after capture, got %+v", d)
+	}
+}
+
+func TestGUIServiceSavedConnections(t *testing.T) {
+	tempConfig(t)
+	migrations := t.TempDir()
+	writeSQLiteMigrations(t, migrations)
+	dbURL := "sqlite://" + filepath.Join(t.TempDir(), "saved.db")
+	svc := &guiService{}
+
+	conns, err := svc.Connections()
+	if err != nil {
+		t.Fatalf("Connections failed: %v", err)
+	}
+	if len(conns) != 0 {
+		t.Errorf("expected empty list, got %v", conns)
+	}
+
+	_, err = svc.Connect(dbURL, migrations)
+	if err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+
+	conns, err = svc.Connections()
+	if err != nil {
+		t.Fatalf("Connections after Connect failed: %v", err)
+	}
+	if len(conns) != 1 || conns[0].Dir != migrations {
+		t.Fatalf("Connections = %+v, want the connected target saved", conns)
+	}
+
+	fresh := &guiService{}
+	info, err := fresh.ConnectSaved(0)
+	if err != nil {
+		t.Fatalf("ConnectSaved failed: %v", err)
+	}
+	if !info.Configured {
+		t.Error("ConnectSaved succeeded but info not configured")
+	}
+
+	_, err = fresh.ConnectSaved(9)
+	if err == nil {
+		t.Error("expected error for out-of-range saved connection")
+	}
+
+	remaining, err := svc.RemoveConnection(0)
+	if err != nil {
+		t.Fatalf("RemoveConnection failed: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("expected empty list after removal, got %v", remaining)
 	}
 }
 

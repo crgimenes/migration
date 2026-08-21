@@ -1,5 +1,7 @@
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
+github.com/crgimenes/filo v0.0.16 h1:/AEn/R5k33UXRfby/ZpJxIVWO5lQAPgnGmxM7eSUG7E=
+github.com/crgimenes/filo v0.0.16/go.mod h1:kt2+3JJivo6/HWOJlphW7iIQdFoB3V5RnL+oBQcHN8w=
 github.com/crgimenes/glaze v0.0.51 h1:NRQRLfJi/d4N0LFvtFLcLtGtmjqqV1KhzVWl+oPEGFQ=
 github.com/crgimenes/glaze v0.0.51/go.mod h1:01e3XdFpYoifpLRriaAoUbL7laZTh0WQmHTTAMd3tFc=
 github.com/crgimenes/native v0.1.8 h1:0dkZr1Ykg+KGOLO/1uB7Vhj7m2tIrZ8ZBT4x7S1Ftk0=
