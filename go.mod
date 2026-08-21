@@ -4,8 +4,8 @@ go 1.27
 
 require (
 	github.com/crgimenes/filo v0.0.16
-	github.com/crgimenes/glaze v0.0.51
-	github.com/crgimenes/native v0.1.8
+	github.com/crgimenes/glaze v0.0.52
+	github.com/crgimenes/native v0.1.9
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.12.3
 	modernc.org/sqlite v1.57.0
