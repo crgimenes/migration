@@ -255,3 +255,30 @@ func TestLoadRejectsGarbage(t *testing.T) {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
+
+func TestLoadRejectsDuplicateKeys(t *testing.T) {
+	// Snapshots are hand-editable; json/v2 rejects a duplicated member
+	// instead of silently keeping the last one.
+	_, err := Load([]byte(`{"format": 1, "format": 2}`))
+	if err == nil {
+		t.Fatal("expected error for duplicate object member")
+	}
+}
+
+func TestToJSONKeepsDDLReadable(t *testing.T) {
+	s := &Schema{
+		Format: FormatVersion,
+		Tables: []Table{
+			{Schema: "public", Name: "users", Checks: []Constraint{
+				{Name: "name_ok", Definition: "CHECK ((name <> ''::text) AND (id > 0))"},
+			}},
+		},
+	}
+	data, err := s.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON failed: %v", err)
+	}
+	if !strings.Contains(string(data), "name <> ''::text") {
+		t.Errorf("DDL must not be HTML-escaped in snapshots:\n%s", data)
+	}
+}

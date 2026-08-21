@@ -7,7 +7,8 @@ package introspect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
@@ -445,12 +446,17 @@ func (t *Table) FindColumn(name string) *Column {
 	return nil
 }
 
-// ToJSON serializes the model for snapshot files.
+// ToJSON serializes the model for snapshot files. json/v2 keeps DDL
+// text readable (no HTML escaping of < > & inside check definitions);
+// FormatNilSliceAsNull preserves the nil/empty distinction so a
+// serialize/parse round trip returns a DeepEqual model.
 func (s *Schema) ToJSON() ([]byte, error) {
-	return json.MarshalIndent(s, "", "\t")
+	return json.Marshal(s, jsontext.WithIndent("\t"), json.FormatNilSliceAsNull(true))
 }
 
-// Load parses a snapshot and validates its format version.
+// Load parses a snapshot and validates its format version. Snapshot
+// files are hand-editable, so the stricter json/v2 defaults (rejecting
+// duplicate object names and invalid UTF-8) are the point.
 func Load(data []byte) (*Schema, error) {
 	s := &Schema{}
 	err := json.Unmarshal(data, s)
