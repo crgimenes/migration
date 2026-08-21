@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - trunk
+  pull_request:
+    branches:
+      - trunk
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Linux gets a PostgreSQL service container, so the introspect and
+  # capture round-trip integration tests run for real here.
+  test-linux:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: migration
+          POSTGRES_DB: migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go build ./...
+
+      - run: go vet ./...
+
+      - name: Test
+        timeout-minutes: 6
+        env:
+          DATABASE_URL: postgres://postgres:migration@localhost:5432/migration_test?sslmode=disable
+        run: go test -count=1 -shuffle=on -timeout 150s ./...
+
+  # macOS and Windows have no service containers; the PostgreSQL
+  # integration tests skip (DATABASE_URL absent) and the SQLite paths
+  # still run everywhere.
+  test:
+    name: test-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go build ./...
+
+      - run: go vet ./...
+
+      - name: Test
+        timeout-minutes: 6
+        run: go test -count=1 -shuffle=on -timeout 150s ./...
+
+  cross-build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.goarch }}
+          GOOS: ${{ matrix.goos }}
+        run: go build -trimpath -ldflags="-s -w" ./...

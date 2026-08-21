@@ -1,36 +1,27 @@
 # Migration Tool
 
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-green.svg)](https://tldrlegal.com/license/mit-license)
-[![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/go-1.27+-blue.svg)](https://golang.org)
 
-A simple and efficient database migration utility with transaction support for PostgreSQL and SQLite, built using only Go standard libraries.
+Database migration tool for PostgreSQL and SQLite with transaction
+support, schema drift detection, and schema analytics. Pure Go, no cgo.
 
-![version](migration_version.png)
+Beyond running SQL migration files, it can introspect a live PostgreSQL
+database, detect changes people made directly on it, and turn that drift
+into a reviewable up/down migration pair. It can also answer "what
+changed between version X and Y" from versioned schema snapshots.
 
 ## Features
 
-- **Transactions**: Each migration runs in a safe transaction
-- **Multi-Database**: Supports PostgreSQL and SQLite with automatic detection
-- **Environment Variables**: Flexible configuration via env vars or flags
-- **Version Control**: Tracks executed migrations
-- **Rollback**: Support for reverting migrations
-
-## ⚠️ Important Notice
-
-**This tool automatically creates and manages a `schema_migrations` table in your database.**
-
-- The table stores migration version numbers to track which migrations have been executed
-- **Table Structure**: `schema_migrations (version INTEGER PRIMARY KEY)`
-- **Auto-Creation**: If the table doesn't exist, it will be created automatically on first run
-- **No Conflicts**: The table name is standard and shouldn't conflict with your application tables
-- **Manual Management**: You can query this table to see migration status: `SELECT * FROM schema_migrations ORDER BY version;`
-
-**What this means for you:**
-
-- **Safe**: The tool only manages its own tracking table
-- **Automatic**: No manual setup required
-- **Standard**: Uses common migration table naming convention
-- **Awareness**: Be aware this table will exist in your database schema
+- **Transactions**: each batch of migrations commits or rolls back as one
+- **Multi-database**: PostgreSQL and SQLite, detected from the URL
+- **Drift detection** (PostgreSQL): compare the live schema against the
+  last known state and generate the migration that captures the changes
+- **Schema analytics** (PostgreSQL): diff any two schema versions,
+  snapshots, or live databases
+- **AI/script friendly**: `-json` on every command, meaningful exit codes
+- **Safe by construction**: generated destructive statements come out
+  commented; renames are flagged, never guessed
 
 ## Installation
 
@@ -48,94 +39,106 @@ go build -o migration
 
 ## Usage
 
-!["Usage Example"](migration_up.png)
+```text
+migration [options] <command> [args]
 
-### Configuration via Environment Variables
+Commands:
+  up [n]              run all (or n) pending migrations
+  down [n]            revert all (or n) applied migrations
+  status              list pending migrations
+  snapshot            record the live schema (PostgreSQL)
+  diff                show drift vs the last snapshot (exit 2 when found)
+  capture [name]      turn drift into an up/down migration pair
+  report <from> <to>  diff two points: snapshot version, `live`, or URL
+
+Options:
+  -url     database URL (or DATABASE_URL)
+  -dir     migrations directory (or MIGRATIONS)
+  -json    machine-readable JSON output
+  -no-snapshot   skip the automatic snapshot after up/down
+  -action  legacy action flag (or ACTION); prefer the positional form
+```
+
+### Running migrations
 
 ```bash
 export DATABASE_URL="postgres://user:password@localhost:5432/dbname?sslmode=disable"
 export MIGRATIONS="./migrations"
-export ACTION="status"
-./migration
+
+migration status
+migration up        # run everything pending
+migration up 1      # run only one
+migration down 1    # revert one
 ```
 
-### Configuration via Flags
-
-#### Check Migration Status
+SQLite works the same way:
 
 ```bash
-# PostgreSQL
-./migration \
-  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
-  -dir "./migrations" \
-  -action "status"
-
-# SQLite file
-./migration \
-  -url "sqlite:///path/to/database.db" \
-  -dir "./migrations" \
-  -action "status"
-
-# SQLite in-memory (for testing)
-./migration \
-  -url "sqlite::memory:" \
-  -dir "./migrations" \
-  -action "status"
+migration -url "sqlite:///path/to/database.db" -dir ./migrations up
+migration -url "sqlite::memory:" -dir ./migrations status
 ```
 
-#### Run All Pending Migrations
+### Detecting manual changes (PostgreSQL)
+
+People change databases directly. This tool turns those changes into
+migrations instead of letting them drift:
 
 ```bash
-# PostgreSQL
-./migration \
-  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
-  -dir "./migrations" \
-  -action "up"
+# After every successful `up`/`down` on PostgreSQL a schema snapshot is
+# written to <migrations dir>/snapshots/NNN.json automatically. To
+# record a baseline explicitly:
+migration snapshot
 
-# SQLite
-./migration \
-  -url "sqlite:///path/to/database.db" \
-  -dir "./migrations" \
-  -action "up"
+# Someone runs DDL directly on the database. Later:
+migration diff
+# ● Drift detected: 2 changes
+#   public.users
+#     ● column_added public.users.email: text
+#     ● index_added public.users.idx_users_email: CREATE INDEX ...
+#   Σ 1 column added, 1 index added
+
+# Turn the drift into a reviewable migration pair:
+migration capture add_email
+# writes 004_add_email.up.sql and 004_add_email.down.sql, registers
+# version 4 as applied (the database already has these changes), and
+# snapshots the new state.
 ```
 
-#### Run Specific Number of Migrations
+Review the generated SQL before committing it. Statements that would
+destroy data (DROP TABLE, DROP COLUMN, DROP TYPE) are generated
+commented out with a warning; a drop+add pair that looks like a rename
+is flagged so you can rewrite it as `ALTER ... RENAME` yourself.
+
+`migration diff` exits with code 2 when drift exists (0 = clean,
+1 = error), so CI can fail a pipeline on unexpected manual changes:
 
 ```bash
-./migration \
-  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
-  -dir "./migrations" \
-  -action "up 2"
+migration -json diff | jq .changes
 ```
 
-#### Revert All Migrations
+### Schema analytics
 
 ```bash
-./migration \
-  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
-  -dir "./migrations" \
-  -action "down"
+migration report 3 7      # what changed between snapshot 3 and 7 (offline)
+migration report 7 live   # what changed since snapshot 7 (-url database)
+migration report "postgres://a/db1" "postgres://b/db2"   # two live databases
 ```
 
-#### Revert Specific Number of Migrations
+### JSON output
+
+Every command accepts `-json`. Examples:
 
 ```bash
-./migration \
-  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
-  -dir "./migrations" \
-  -action "down 1"
+migration -json status
+# {"action":"status","count":2,"files":["..."],"ok":true}
+
+migration -json diff
+# {"action":"diff","snapshot":3,"drift":true,"changes":[{"kind":"column_added",...}],"ok":true}
 ```
 
-### Help and Version
+## Migration files
 
-```bash
-./migration -help
-./migration -version
-```
-
-## Migration File Structure
-
-Migration files must follow the naming convention:
+Files follow the naming convention:
 
 ```text
 001_create_users_table.up.sql
@@ -144,144 +147,50 @@ Migration files must follow the naming convention:
 002_add_email_index.down.sql
 ```
 
-### Migration Example
+The number prefix is the version. Each `.up.sql` needs a matching
+`.down.sql` that reverts it.
 
-**001_create_users_table.up.sql:**
+## The schema_migrations table
 
-```sql
--- PostgreSQL version
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+The tool creates and manages a `schema_migrations (version INTEGER
+PRIMARY KEY)` table to track applied versions. It only ever touches this
+one table; it is excluded from snapshots, diffs, and reports.
 
--- SQLite version (if using SQLite)
--- CREATE TABLE users (
---     id INTEGER PRIMARY KEY AUTOINCREMENT,
---     name TEXT NOT NULL,
---     email TEXT UNIQUE NOT NULL,
---     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
--- );
-```
+## Snapshots
 
-**001_create_users_table.down.sql:**
+`<migrations dir>/snapshots/NNN.json` holds the introspected schema as
+of migration version NNN: tables, columns, constraints and indexes (as
+canonical `pg_get_constraintdef`/`pg_get_indexdef` text), enums, and
+standalone sequences. Snapshots are plain JSON meant to be committed
+alongside the SQL files. Views, functions, and triggers are not modeled.
 
-```sql
-DROP TABLE IF EXISTS users;
-```
+## Exit codes
 
-### Advanced Migration Examples
+| code | meaning                        |
+|------|--------------------------------|
+| 0    | success / no drift             |
+| 1    | error                          |
+| 2    | drift found (`diff` only)      |
 
-**002_add_user_profile.up.sql:**
-
-```sql
--- Add profile fields to users table
-ALTER TABLE users
-ADD COLUMN avatar_url TEXT,
-ADD COLUMN bio TEXT,
-ADD COLUMN is_active BOOLEAN DEFAULT true;
-
--- Create user sessions table
-CREATE TABLE user_sessions (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    session_token VARCHAR(255) NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_user_sessions_token ON user_sessions(session_token);
-CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
-```
-
-**002_add_user_profile.down.sql:**
-
-```sql
--- Remove in reverse order
-DROP INDEX IF EXISTS idx_user_sessions_user_id;
-DROP INDEX IF EXISTS idx_user_sessions_token;
-DROP TABLE IF EXISTS user_sessions;
-
--- Remove columns (PostgreSQL syntax)
-ALTER TABLE users
-DROP COLUMN IF EXISTS avatar_url,
-DROP COLUMN IF EXISTS bio,
-DROP COLUMN IF EXISTS is_active;
-```
-
-### Database-Specific Migration Tips
-
-#### PostgreSQL Features
-
-```sql
--- Use transactions (automatically handled by migration tool)
--- Use IF EXISTS/IF NOT EXISTS for safety
--- Consider using SERIAL for auto-increment IDs
--- Use proper data types: VARCHAR, TEXT, TIMESTAMP, etc.
-```
-
-#### SQLite Considerations
-
-```sql
--- Use INTEGER PRIMARY KEY for auto-increment
--- Use TEXT instead of VARCHAR
--- Use DATETIME instead of TIMESTAMP
--- Be careful with ALTER TABLE limitations
--- Some operations require table recreation
-```
-
-### Troubleshooting
-
-#### Common Issues
-
-**Migration not found:**
+## Development
 
 ```bash
-# Check if files exist and have correct naming
-ls -la migrations/
+go test -timeout 30s -count 1 ./...
 ```
 
-**Database connection issues:**
+PostgreSQL integration tests (introspection, capture round-trip) need a
+live server and skip when `DATABASE_URL` is not set:
 
 ```bash
-# Test connection manually
-psql $DATABASE_URL -c "SELECT 1;"
-# Or for SQLite
-sqlite3 /path/to/database.db ".tables"
-```
+docker run -d --rm --name migration-test-pg \
+  -e POSTGRES_PASSWORD=migration -e POSTGRES_DB=migration_test \
+  -p 55433:5432 postgres:15-alpine
 
-**Permission errors:**
-
-```bash
-# Make sure database user has proper permissions
-# For PostgreSQL: GRANT CREATE, ALTER, DROP ON DATABASE
-# For SQLite: Check file permissions
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Running Tests
-
-```bash
-# Run all tests
-go test -v
-
-# Run with coverage
-go test -v -cover
-
-# Run specific test
-go test -v -run TestSpecificFunction
+DATABASE_URL='postgres://postgres:migration@localhost:55433/migration_test?sslmode=disable' \
+  go test -timeout 120s -count 1 ./...
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the
+[LICENSE](LICENSE) file for details.

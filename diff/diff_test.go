@@ -260,6 +260,25 @@ func TestNoRenameNoteWhenTypesDiffer(t *testing.T) {
 	}
 }
 
+func TestSummarize(t *testing.T) {
+	changes := []Change{
+		{Kind: TableAdded},
+		{Kind: ColumnAltered},
+		{Kind: ColumnAltered},
+		{Kind: EnumValueAdded},
+		{Kind: IndexDropped},
+	}
+	got := Summarize(changes)
+	want := "1 table added, 2 columns altered, 1 index dropped, 1 enum value added"
+	if got != want {
+		t.Errorf("Summarize() = %q, want %q", got, want)
+	}
+
+	if Summarize(nil) != "" {
+		t.Errorf("Summarize(nil) = %q, want empty", Summarize(nil))
+	}
+}
+
 func TestChangeString(t *testing.T) {
 	c := Change{Kind: ColumnAltered, Schema: "public", Table: "users", Object: "age", Old: "integer", New: "bigint"}
 	got := c.String()

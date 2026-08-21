@@ -97,15 +97,28 @@ func liveDiff(ctx context.Context, db *sqlx.DB, dir string) (snapVersion int, sn
 	return snapVersion, snap, live, diff.Compare(snap, live), nil
 }
 
+// printChanges groups changes under their table; enums and sequences
+// (no table) print under their own qualified name. The change list is
+// already in model order, so groups come out contiguous.
 func printChanges(changes []diff.Change) {
+	lastGroup := ""
 	for _, c := range changes {
+		group := c.Schema + "." + c.Table
+		if c.Table == "" {
+			group = c.Schema + "." + c.Object
+		}
+		if group != lastGroup {
+			fmt.Printf("  %s\n", printHeader(group))
+			lastGroup = group
+		}
+
 		bullet := printInfo("●")
 		if strings.HasSuffix(string(c.Kind), "_dropped") || c.Kind == diff.EnumAltered {
 			bullet = printWarning("●")
 		}
-		fmt.Printf("  %s %s\n", bullet, c.String())
+		fmt.Printf("    %s %s\n", bullet, c.String())
 	}
-	fmt.Println()
+	fmt.Printf("\n  %s %s\n\n", printInfo("Σ"), printHighlight(diff.Summarize(changes)))
 }
 
 func cmdDiff(ctx context.Context, dbURL, dir string, jsonOut bool) error {

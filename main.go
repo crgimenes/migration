@@ -122,6 +122,8 @@ func Execute() error {
 		actionFlag = flag.String("action", os.Getenv("ACTION"), "Migrations action (legacy; prefer the positional form)")
 		jsonOut    = flag.Bool("json", false, "Machine-readable JSON output")
 		noSnap     = flag.Bool("no-snapshot", false, "Skip the automatic schema snapshot after up/down")
+		gui        = flag.Bool("gui", false, "Open the graphical interface")
+		debug      = flag.Bool("debug", false, "Enable diagnostics (GUI devtools)")
 		version    = flag.Bool("version", false, "Show version")
 		help       = flag.Bool("help", false, "Show help")
 	)
@@ -156,6 +158,14 @@ func Execute() error {
 	if *help {
 		flag.Usage()
 		return nil
+	}
+
+	if *gui {
+		if *dbURL == "" || *dir == "" {
+			fmt.Fprintf(os.Stderr, "%s %s\n", printError("● Error:"), "-gui needs -url and -dir")
+			return errors.New("-gui needs -url and -dir")
+		}
+		return runGUI(*dbURL, *dir, *debug)
 	}
 
 	action := *actionFlag

@@ -63,13 +63,53 @@ func (c Change) String() string {
 		place = c.Schema + "." + c.Table + "." + c.Object
 	}
 	s := fmt.Sprintf("%s %s", c.Kind, place)
-	if c.Old != "" || c.New != "" {
+	switch {
+	case c.Old != "" && c.New != "":
 		s += fmt.Sprintf(": %s -> %s", c.Old, c.New)
+	case c.New != "":
+		s += ": " + c.New
+	case c.Old != "":
+		s += ": " + c.Old
 	}
 	if c.Note != "" {
 		s += " (" + c.Note + ")"
 	}
 	return s
+}
+
+// summaryOrder fixes the phrase order in Summarize output.
+var summaryOrder = []Kind{
+	TableAdded, TableDropped,
+	ColumnAdded, ColumnDropped, ColumnAltered,
+	ConstraintAdded, ConstraintDropped, ConstraintAltered,
+	IndexAdded, IndexDropped, IndexAltered,
+	EnumAdded, EnumDropped, EnumValueAdded, EnumAltered,
+	SequenceAdded, SequenceDropped, SequenceAltered,
+}
+
+// Summarize renders a one-line count of the changes, e.g.
+// "1 table added, 2 columns altered, 1 index dropped".
+func Summarize(changes []Change) string {
+	counts := map[Kind]int{}
+	for _, c := range changes {
+		counts[c.Kind]++
+	}
+
+	var parts []string
+	for _, k := range summaryOrder {
+		n := counts[k]
+		if n == 0 {
+			continue
+		}
+		verbIdx := strings.LastIndex(string(k), "_")
+		noun := strings.ReplaceAll(string(k)[:verbIdx], "_", " ")
+		verb := string(k)[verbIdx+1:]
+		if n > 1 {
+			noun += "s"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s %s", n, noun, verb))
+	}
+	return strings.Join(parts, ", ")
 }
 
 var inverseKind = map[Kind]Kind{

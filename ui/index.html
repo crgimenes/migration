@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>migration</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+	<div class="ident">
+		<h1>migration</h1>
+		<div class="target">
+			<span id="db-target" class="mono"></span>
+			<span id="dir-target" class="mono"></span>
+		</div>
+	</div>
+	<button id="refresh" title="Refresh (Cmd+R)">Refresh</button>
+</header>
+
+<main>
+	<section class="card" id="status-card">
+		<h2>Status</h2>
+		<div id="status-body" class="body">Loading...</div>
+	</section>
+
+	<section class="card" id="drift-card">
+		<h2>Drift</h2>
+		<div id="drift-body" class="body">Loading...</div>
+	</section>
+
+	<section class="card" id="report-card">
+		<h2>Report</h2>
+		<div class="report-controls">
+			<label>From <select id="report-from"></select></label>
+			<label>To <select id="report-to"></select></label>
+			<button id="report-run">Compare</button>
+		</div>
+		<div id="report-body" class="body"></div>
+	</section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
