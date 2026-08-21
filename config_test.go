@@ -153,6 +153,7 @@ func TestDefaultTitle(t *testing.T) {
 		{"postgres://u@host:5432", "host:5432"},
 		{"sqlite:///var/data/site.db", "site.db"},
 		{"sqlite::memory:", "connection"},
+		{`sqlite://C:\data\site.db`, "site.db"},
 	}
 	for _, tt := range tests {
 		got := defaultTitle(tt.url)

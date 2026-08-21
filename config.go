@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/crgimenes/filo"
+	"github.com/crgimenes/migration/core"
 )
 
 type SavedConnection struct {
@@ -230,12 +231,24 @@ func removeConnection(index int) error {
 // URL can carry a password): the database name when the URL states one,
 // otherwise the host.
 func defaultTitle(dbURL string) string {
+	// A SQLite URL is a filesystem path, which url.Parse cannot handle
+	// on Windows; name it after the file.
+	if strings.HasPrefix(strings.ToLower(dbURL), "sqlite:") {
+		source := core.SQLiteDataSource(dbURL)
+		if source == ":memory:" {
+			return "connection"
+		}
+		// Both separators, so a Windows path read from a synced config
+		// still names the file when this runs on another platform.
+		return source[strings.LastIndexAny(source, `/\`)+1:]
+	}
+
 	u, err := url.Parse(dbURL)
 	if err != nil {
 		return "connection"
 	}
 	name := strings.TrimPrefix(u.Path, "/")
-	if name != "" && name != ":memory:" {
+	if name != "" {
 		return filepath.Base(name)
 	}
 	if u.Host != "" {

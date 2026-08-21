@@ -69,6 +69,46 @@ func Test_downFiles_moreAppliedThanFiles(t *testing.T) {
 	}
 }
 
+func TestSQLiteDataSource(t *testing.T) {
+	// A SQLite URL carries a filesystem path, so the conversion must
+	// survive shapes url.Parse cannot handle: Windows drive letters
+	// (which parse as an "invalid port") and relative paths (whose
+	// first segment url.Parse would read as a host and drop).
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"memory", "sqlite::memory:", ":memory:"},
+		{"absolute unix", "sqlite:///tmp/app.db", "/tmp/app.db"},
+		{"windows backslash", `sqlite://C:\data\app.db`, `C:\data\app.db`},
+		{"windows forward slash", "sqlite://C:/data/app.db", "C:/data/app.db"},
+		{"relative keeps first segment", "sqlite://data/app.db", "data/app.db"},
+		{"dot relative", "sqlite://./app.db", "./app.db"},
+		{"no slashes", "sqlite:app.db", "app.db"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SQLiteDataSource(tt.in)
+			if got != tt.want {
+				t.Errorf("SQLiteDataSource(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetDatabaseConfigWindowsPath(t *testing.T) {
+	// Regression: url.Parse rejected this outright, so SQLite file
+	// databases were unusable on Windows.
+	config, err := GetDatabaseConfig(`sqlite://C:\data\app.db`)
+	if err != nil {
+		t.Fatalf("GetDatabaseConfig with a Windows path failed: %v", err)
+	}
+	if config.Type != SQLite {
+		t.Errorf("type = %v, want SQLite", config.Type)
+	}
+}
+
 func TestRunUnsupportedScheme(t *testing.T) {
 	_, _, err := Run(context.Background(), "testdata", "mysql://user:pass@localhost/db", "up")
 	if err == nil {

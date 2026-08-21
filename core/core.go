@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,23 +33,34 @@ type DatabaseConfig struct {
 	CreateTableSQL      string
 }
 
-func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
+// scheme returns the lowercased URL scheme. The scheme is split off by
+// hand instead of with url.Parse because a SQLite URL carries a
+// filesystem path, and a Windows path (sqlite://C:\data\app.db) is not
+// a valid URL authority - url.Parse rejects it as "invalid port".
+func scheme(dbURL string) (string, bool) {
+	s, _, found := strings.Cut(dbURL, ":")
+	return strings.ToLower(s), found
+}
+
+// SQLiteDataSource converts a SQLite URL into the path the driver
+// wants. Everything after the scheme is taken literally, so Windows
+// paths survive and a relative path keeps its first segment (url.Parse
+// would read that segment as a host and silently drop it).
+func SQLiteDataSource(dbURL string) string {
 	if dbURL == "sqlite::memory:" {
-		return &DatabaseConfig{
-			Type:                SQLite,
-			DriverName:          "sqlite",
-			Placeholder:         "?",
-			CheckTableExistsSQL: `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'`,
-			CreateTableSQL:      `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
-		}, nil
+		return ":memory:"
+	}
+	_, rest, _ := strings.Cut(dbURL, ":")
+	return strings.TrimPrefix(rest, "//")
+}
+
+func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
+	s, found := scheme(dbURL)
+	if !found {
+		return nil, fmt.Errorf("missing scheme in database URL: %s", dbURL)
 	}
 
-	u, err := url.Parse(dbURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse database URL: %w", err)
-	}
-
-	switch strings.ToLower(u.Scheme) {
+	switch s {
 	case "postgres", "postgresql":
 		return &DatabaseConfig{
 			Type:                PostgreSQL,
@@ -68,21 +78,13 @@ func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
 			CreateTableSQL:      `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported database scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported database scheme: %s", s)
 	}
 }
 
 func OpenDatabase(dbURL string, config *DatabaseConfig) (*sqlx.DB, error) {
-	switch {
-	case dbURL == "sqlite::memory:":
-		// The sqlite driver expects the bare ":memory:" form.
-		dbURL = ":memory:"
-	case config.Type == SQLite:
-		u, err := url.Parse(dbURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse SQLite URL: %w", err)
-		}
-		dbURL = u.Path
+	if config.Type == SQLite {
+		dbURL = SQLiteDataSource(dbURL)
 	}
 
 	db, err := sqlx.Open(config.DriverName, dbURL)

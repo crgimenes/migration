@@ -22,9 +22,9 @@ func Test_upFiles(t *testing.T) {
 			name: "list files",
 			path: "testdata",
 			wantFiles: []string{
-				"testdata/001_name.up.sql",
-				"testdata/002_b_name.up.sql",
-				"testdata/003_a_name.up.sql",
+				filepath.Join("testdata", "001_name.up.sql"),
+				filepath.Join("testdata", "002_b_name.up.sql"),
+				filepath.Join("testdata", "003_a_name.up.sql"),
 			},
 		},
 	}
@@ -53,9 +53,9 @@ func Test_downFiles(t *testing.T) {
 			name: "list files",
 			path: "testdata",
 			wantFiles: []string{
-				"testdata/003_a_name.down.sql",
-				"testdata/002_b_name.down.sql",
-				"testdata/001_name.down.sql",
+				filepath.Join("testdata", "003_a_name.down.sql"),
+				filepath.Join("testdata", "002_b_name.down.sql"),
+				filepath.Join("testdata", "001_name.down.sql"),
 			},
 		},
 	}
