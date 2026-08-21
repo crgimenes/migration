@@ -48,8 +48,26 @@ type guiService struct {
 	mu    sync.Mutex
 	dbURL string
 	dir   string
+	// dirRelease ends the sandbox access grant for dir (bookmark
+	// package); nil or no-op outside the macOS App Sandbox.
+	dirRelease func()
 	// w re-enters the UI thread for native panels; nil in headless tests.
 	w glaze.WebView
+}
+
+// setTarget swaps the connection target and its access grant; the old
+// grant is released only after the new state is in place.
+func (s *guiService) setTarget(dbURL, dir string, release func()) {
+	s.mu.Lock()
+	old := s.dirRelease
+	s.dbURL = dbURL
+	s.dir = dir
+	s.dirRelease = release
+	s.mu.Unlock()
+
+	if old != nil {
+		old()
+	}
 }
 
 type guiInfo struct {
@@ -143,34 +161,49 @@ func (s *guiService) Connect(dbURL, dir string) (guiInfo, error) {
 		return guiInfo{}, errors.New("both the database URL and the migrations directory are required")
 	}
 
+	// Under the App Sandbox a previously granted directory is only
+	// reachable again through its stored bookmark; restore before the
+	// first touch. No stored token is fine (fresh grant from the panel,
+	// or a platform where access persists on its own).
+	release, err := restoreDirBookmark(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s failed to restore directory access: %v\n", printWarning("● Warning:"), err)
+		release = func() {}
+	}
+
 	config, err := core.GetDatabaseConfig(dbURL)
 	if err != nil {
+		release()
 		return guiInfo{}, err
 	}
 	db, err := core.OpenDatabase(dbURL, config)
 	if err != nil {
+		release()
 		return guiInfo{}, err
 	}
 	closeDB(db)
 
 	fi, err := os.Stat(dir) // #nosec G703 -- the user chooses the directory in their own GUI
 	if err != nil {
+		release()
 		return guiInfo{}, fmt.Errorf("migrations directory: %w", err)
 	}
 	if !fi.IsDir() {
+		release()
 		return guiInfo{}, fmt.Errorf("migrations directory %s is not a directory", dir)
 	}
 
-	s.mu.Lock()
-	s.dbURL = dbURL
-	s.dir = dir
-	s.mu.Unlock()
+	s.setTarget(dbURL, dir, release)
 
 	// Persist for the next launch. The connection itself succeeded, so
 	// a save failure degrades to a warning, not a failed Connect.
 	err = appendConnection(dbURL, dir, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s failed to save connection: %v\n", printWarning("● Warning:"), err)
+	}
+	err = saveDirBookmark(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s failed to save directory access: %v\n", printWarning("● Warning:"), err)
 	}
 
 	return s.Info()
@@ -615,7 +648,19 @@ func runGUI(dbURL, dir string, debug bool) error {
 
 	installGUIMenu(w)
 
-	_, err = glaze.BindMethods(w, "migration", &guiService{dbURL: dbURL, dir: dir, w: w})
+	svc := &guiService{dbURL: dbURL, dir: dir, w: w}
+	if dir != "" {
+		release, restoreErr := restoreDirBookmark(dir)
+		if restoreErr != nil {
+			// The window still opens; the cards report the failure when
+			// the directory is actually touched.
+			fmt.Fprintf(os.Stderr, "%s failed to restore directory access: %v\n", printWarning("● Warning:"), restoreErr)
+		} else {
+			svc.dirRelease = release
+		}
+	}
+
+	_, err = glaze.BindMethods(w, "migration", svc)
 	if err != nil {
 		return err
 	}

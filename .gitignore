@@ -18,3 +18,8 @@ AGENTS.md
 TODO.md
 dist/
 .DS_Store
+
+# Local dev workspace (relative paths, never committed); the release
+# builds with GOWORK=off against the pinned go.mod versions.
+go.work
+go.work.sum
