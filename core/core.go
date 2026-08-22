@@ -1,5 +1,10 @@
 // Package core runs SQL file migrations against PostgreSQL and SQLite,
 // tracking applied versions in the schema_migrations table.
+//
+// The package registers no SQL drivers: the migration binary brings
+// lib/pq and modernc.org/sqlite itself, and an embedding application
+// (keikiban) registers whatever stack it already uses - importing core
+// must not drag drivers into the consumer's binary.
 package core
 
 import (
@@ -14,8 +19,6 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
-	_ "modernc.org/sqlite"
 )
 
 type DatabaseType int

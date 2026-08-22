@@ -62,6 +62,7 @@ function showScreen(name) {
 		loadReportControls();
 	} else if (name === "connection") {
 		loadSavedConnections();
+		loadSuggestions();
 	}
 }
 
@@ -373,6 +374,47 @@ async function loadSavedConnections() {
 		block.hidden = false;
 	} catch (err) {
 		showError($("conn-result"), err);
+	}
+}
+
+async function loadSuggestions() {
+	const block = $("suggest-block");
+	const list = $("suggest-list");
+	try {
+		const conns = await window.migration_suggestions();
+		if (conns.length === 0) {
+			block.hidden = true;
+			return;
+		}
+		list.innerHTML = "";
+		conns.forEach((c, i) => {
+			const li = document.createElement("li");
+			li.innerHTML =
+				`<span class="saved-ident"><span class="title">${esc(c.title)}</span>` +
+				`<span class="detail">${esc(c.url)}</span></span>`;
+
+			const useBtn = document.createElement("button");
+			useBtn.type = "button";
+			useBtn.textContent = "Use";
+			useBtn.addEventListener("click", async () => {
+				try {
+					// The list shows the masked URL; the real one is
+					// fetched only when the user picks it.
+					$("conn-url").value = await window.migration_suggestion_url(i);
+					$("conn-dir").focus();
+				} catch (err) {
+					showError($("conn-result"), err);
+				}
+			});
+
+			li.appendChild(useBtn);
+			list.appendChild(li);
+		});
+		block.hidden = false;
+	} catch (err) {
+		// keikiban is optional context; a broken config there must not
+		// break this screen.
+		block.hidden = true;
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/crgimenes/glaze/menu"
 	"github.com/crgimenes/migration/core"
 	"github.com/crgimenes/migration/diff"
+	"github.com/crgimenes/migration/drift"
 	"github.com/crgimenes/migration/gen"
 	"github.com/crgimenes/migration/snapshot"
 	"github.com/crgimenes/native/filedialog"
@@ -95,8 +96,19 @@ type guiChanges struct {
 }
 
 // redactURL hides the password so the connection target can be shown in
-// the UI without leaking credentials to screenshots.
+// the UI without leaking credentials to screenshots. It also covers the
+// key=value form (password=...) that keikiban connections may use.
 func redactURL(dbURL string) string {
+	if !strings.Contains(dbURL, "://") {
+		fields := strings.Fields(dbURL)
+		for i, field := range fields {
+			if strings.HasPrefix(field, "password=") {
+				fields[i] = "password=***"
+			}
+		}
+		return strings.Join(fields, " ")
+	}
+
 	u, err := url.Parse(dbURL)
 	if err != nil {
 		return dbURL
@@ -209,6 +221,56 @@ func (s *guiService) Connect(dbURL, dir string) (guiInfo, error) {
 	return s.Info()
 }
 
+// suggestionList is the filtered view both Suggestions and
+// SuggestionURL derive, so their indexes always agree: keikiban
+// databases migration can connect to (URL-scheme form; keikiban also
+// accepts key=value, which migration does not speak), minus the ones
+// already saved here.
+func suggestionList() ([]SavedConnection, error) {
+	conns, err := keikibanDatabases()
+	if err != nil {
+		return nil, err
+	}
+	saved, err := loadConnections()
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for _, c := range saved {
+		known[c.URL] = true
+	}
+
+	usable := []SavedConnection{}
+	for _, c := range conns {
+		_, err = core.GetDatabaseConfig(c.URL)
+		if err != nil || known[c.URL] {
+			continue
+		}
+		usable = append(usable, c)
+	}
+	return usable, nil
+}
+
+// Suggestions lists keikiban's databases for the Connection screen,
+// masked; the real URL only travels through SuggestionURL when the
+// user picks one (keikiban's own pattern for its edit form).
+func (s *guiService) Suggestions() ([]SavedConnection, error) {
+	return suggestionList()
+}
+
+// SuggestionURL returns the real URL of one suggestion to prefill the
+// connection form.
+func (s *guiService) SuggestionURL(index int) (string, error) {
+	conns, err := suggestionList()
+	if err != nil {
+		return "", err
+	}
+	if index < 0 || index >= len(conns) {
+		return "", fmt.Errorf("suggestion %d does not exist", index)
+	}
+	return conns[index].URL, nil
+}
+
 // Connections lists the saved connections for the picker in the
 // Connection screen.
 func (s *guiService) Connections() ([]SavedConnection, error) {
@@ -291,7 +353,7 @@ func (s *guiService) Drift() (guiChanges, error) {
 	}
 	defer closeDB(db)
 
-	snapVersion, _, _, changes, err := liveDiff(ctx, db, dir)
+	snapVersion, _, _, changes, err := drift.LiveDiff(ctx, db, dir)
 	if err != nil {
 		return guiChanges{}, err
 	}
@@ -484,7 +546,7 @@ func (s *guiService) CapturePreview() (guiCapturePreview, error) {
 	}
 	defer closeDB(db)
 
-	snapVersion, snap, live, changes, err := liveDiff(ctx, db, dir)
+	snapVersion, snap, live, changes, err := drift.LiveDiff(ctx, db, dir)
 	if err != nil {
 		return guiCapturePreview{}, err
 	}
@@ -524,7 +586,7 @@ var captureName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // Capture writes the previewed migration pair (the confirmed
 // CapturePreview).
-func (s *guiService) Capture(name string) (*captureOutcome, error) {
+func (s *guiService) Capture(name string) (*drift.Outcome, error) {
 	if name == "" {
 		name = "captured_changes"
 	}
@@ -546,7 +608,7 @@ func (s *guiService) Capture(name string) (*captureOutcome, error) {
 	}
 	defer closeDB(db)
 
-	return captureDrift(ctx, db, config, dir, name)
+	return drift.Capture(ctx, db, config, dir, name)
 }
 
 func startUIServer() (string, error) {
@@ -616,20 +678,41 @@ func installGUIMenu(w glaze.WebView) {
 	}
 }
 
-func runGUI(dbURL, dir string, debug bool) error {
-	// No target from flags or env: fall back to the first saved
-	// connection. No ping here - a dead server surfaces as a visible
-	// error in the cards, and the window still opens instantly.
-	if dbURL == "" || dir == "" {
-		saved, err := loadConnections()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s failed to load saved connections: %v\n", printWarning("● Warning:"), err)
-		}
-		if len(saved) > 0 {
-			dbURL = saved[0].URL
-			dir = saved[0].Dir
-		}
+// resolveGUITarget completes a partial launch target from the saved
+// connections. A URL without a dir gets the dir saved for that URL -
+// this is the handoff contract: another tool (keikiban) can open
+// migration on a database knowing only its URL. An empty target falls
+// back to the first saved connection. No ping here - a dead server
+// surfaces as a visible error in the cards, and the window still opens
+// instantly.
+func resolveGUITarget(dbURL, dir string) (string, string) {
+	if dbURL != "" && dir != "" {
+		return dbURL, dir
 	}
+
+	saved, err := loadConnections()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s failed to load saved connections: %v\n", printWarning("● Warning:"), err)
+		return dbURL, dir
+	}
+
+	if dbURL != "" {
+		for _, c := range saved {
+			if c.URL == dbURL {
+				return dbURL, c.Dir
+			}
+		}
+		return dbURL, dir
+	}
+
+	if len(saved) > 0 {
+		return saved[0].URL, saved[0].Dir
+	}
+	return dbURL, dir
+}
+
+func runGUI(dbURL, dir string, debug bool) error {
+	dbURL, dir = resolveGUITarget(dbURL, dir)
 
 	baseURL, err := startUIServer()
 	if err != nil {

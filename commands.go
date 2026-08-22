@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/crgimenes/migration/core"
 	"github.com/crgimenes/migration/diff"
-	"github.com/crgimenes/migration/gen"
+	"github.com/crgimenes/migration/drift"
 	"github.com/crgimenes/migration/introspect"
 	"github.com/crgimenes/migration/snapshot"
 	"github.com/jmoiron/sqlx"
@@ -80,23 +79,6 @@ func cmdSnapshot(ctx context.Context, dbURL, dir string, jsonOut bool) error {
 	return nil
 }
 
-// liveDiff compares the latest snapshot with the live database.
-func liveDiff(ctx context.Context, db *sqlx.DB, dir string) (snapVersion int, snap, live *introspect.Schema, changes []diff.Change, err error) {
-	snapVersion, snap, found, err := snapshot.Latest(dir)
-	if err != nil {
-		return 0, nil, nil, nil, err
-	}
-	if !found {
-		return 0, nil, nil, nil, fmt.Errorf("no snapshot found in %s; run `%s snapshot` first to record the current state", snapshot.Dir(dir), os.Args[0])
-	}
-
-	live, err = introspect.Read(ctx, db)
-	if err != nil {
-		return 0, nil, nil, nil, err
-	}
-	return snapVersion, snap, live, diff.Compare(snap, live), nil
-}
-
 // printChanges groups changes under their table; enums and sequences
 // (no table) print under their own qualified name. The change list is
 // already in model order, so groups come out contiguous.
@@ -128,7 +110,7 @@ func cmdDiff(ctx context.Context, dbURL, dir string, jsonOut bool) error {
 	}
 	defer closeDB(db)
 
-	snapVersion, _, _, changes, err := liveDiff(ctx, db, dir)
+	snapVersion, _, _, changes, err := drift.LiveDiff(ctx, db, dir)
 	if err != nil {
 		return err
 	}
@@ -164,63 +146,6 @@ func cmdDiff(ctx context.Context, dbURL, dir string, jsonOut bool) error {
 	return errDrift
 }
 
-// captureOutcome is shared by the CLI and the GUI: what capturing the
-// current drift produced.
-type captureOutcome struct {
-	Drift    bool          `json:"drift"`
-	Version  int           `json:"version,omitempty"`
-	UpFile   string        `json:"up_file,omitempty"`
-	DownFile string        `json:"down_file,omitempty"`
-	Snapshot string        `json:"snapshot_file,omitempty"`
-	Changes  []diff.Change `json:"changes"`
-}
-
-// captureDrift turns the current drift into a migration pair, registers
-// the version as applied (the live database already has these changes),
-// and snapshots the new state.
-func captureDrift(ctx context.Context, db *sqlx.DB, config *core.DatabaseConfig, dir, name string) (*captureOutcome, error) {
-	_, snap, live, changes, err := liveDiff(ctx, db, dir)
-	if err != nil {
-		return nil, err
-	}
-	if len(changes) == 0 {
-		return &captureOutcome{Drift: false, Changes: []diff.Change{}}, nil
-	}
-
-	current, err := core.GetMigrationMax(ctx, db, config)
-	if err != nil {
-		return nil, err
-	}
-	next := current + 1
-
-	upSQL, downSQL := gen.Generate(changes, snap, live)
-	upFile := filepath.Join(dir, fmt.Sprintf("%03d_%s.up.sql", next, name))
-	downFile := filepath.Join(dir, fmt.Sprintf("%03d_%s.down.sql", next, name))
-	err = writeMigrationPair(upFile, downFile, upSQL, downSQL)
-	if err != nil {
-		return nil, err
-	}
-
-	err = markApplied(ctx, db, config, next)
-	if err != nil {
-		return nil, err
-	}
-
-	snapPath, err := snapshot.Write(dir, next, live)
-	if err != nil {
-		return nil, err
-	}
-
-	return &captureOutcome{
-		Drift:    true,
-		Version:  next,
-		UpFile:   upFile,
-		DownFile: downFile,
-		Snapshot: snapPath,
-		Changes:  changes,
-	}, nil
-}
-
 func cmdCapture(ctx context.Context, dbURL, dir, name string, jsonOut bool) error {
 	db, config, err := openPostgres(dbURL)
 	if err != nil {
@@ -228,7 +153,7 @@ func cmdCapture(ctx context.Context, dbURL, dir, name string, jsonOut bool) erro
 	}
 	defer closeDB(db)
 
-	outcome, err := captureDrift(ctx, db, config, dir, name)
+	outcome, err := drift.Capture(ctx, db, config, dir, name)
 	if err != nil {
 		return err
 	}
@@ -236,7 +161,7 @@ func cmdCapture(ctx context.Context, dbURL, dir, name string, jsonOut bool) erro
 	if jsonOut {
 		return emitJSON(struct {
 			Action string `json:"action"`
-			*captureOutcome
+			*drift.Outcome
 			OK bool `json:"ok"`
 		}{"capture", outcome, true})
 	}
@@ -254,40 +179,6 @@ func cmdCapture(ctx context.Context, dbURL, dir, name string, jsonOut bool) erro
 	fmt.Printf("%s %s\n", printSuccess("● Snapshot written:"), printHighlight(outcome.Snapshot))
 	fmt.Printf("%s version %d registered as applied; review the generated SQL before committing.\n\n", printInfo("→"), outcome.Version)
 	return nil
-}
-
-func writeMigrationPair(upFile, downFile, upSQL, downSQL string) error {
-	for _, f := range []string{upFile, downFile} {
-		_, err := os.Stat(f) // #nosec G703 -- paths derive from the user-provided migrations dir
-		if err == nil {
-			return fmt.Errorf("refusing to overwrite existing migration file %s", f)
-		}
-	}
-	// 0644: migration files are source artifacts meant to be committed.
-	err := os.WriteFile(upFile, []byte(upSQL), 0o644) // #nosec G703 G306
-	if err != nil {
-		return fmt.Errorf("failed to write %s: %w", upFile, err)
-	}
-	err = os.WriteFile(downFile, []byte(downSQL), 0o644) // #nosec G703 G306
-	if err != nil {
-		return fmt.Errorf("failed to write %s: %w", downFile, err)
-	}
-	return nil
-}
-
-func markApplied(ctx context.Context, db *sqlx.DB, config *core.DatabaseConfig, version int) error {
-	tx, err := db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	err = core.InsertMigration(ctx, tx, config, version)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // resolvePoint loads one side of a report: an integer means a snapshot

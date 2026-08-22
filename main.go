@@ -106,13 +106,37 @@ func formatFileSize(filename string) string {
 var Version string
 
 // jsonResult is the -json output contract. Count means migrations
-// executed for up/down and pending for status.
+// executed for up/down and pending for status; Applied is the highest
+// applied version, stated for status (it is what a dashboard like
+// keikiban shows next to the pending count).
 type jsonResult struct {
-	Action string   `json:"action"`
-	Count  int      `json:"count"`
-	Files  []string `json:"files"`
-	OK     bool     `json:"ok"`
-	Error  string   `json:"error,omitempty"`
+	Action  string   `json:"action"`
+	Count   int      `json:"count"`
+	Applied *int     `json:"applied,omitempty"`
+	Files   []string `json:"files"`
+	OK      bool     `json:"ok"`
+	Error   string   `json:"error,omitempty"`
+}
+
+// appliedVersion reads the highest applied migration version; nil when
+// the database cannot answer (the status itself already reported the
+// real error).
+func appliedVersion(ctx context.Context, dbURL string) *int {
+	config, err := core.GetDatabaseConfig(dbURL)
+	if err != nil {
+		return nil
+	}
+	db, err := core.OpenDatabase(dbURL, config)
+	if err != nil {
+		return nil
+	}
+	defer closeDB(db)
+
+	v, err := core.GetMigrationMax(ctx, db, config)
+	if err != nil {
+		return nil
+	}
+	return &v
 }
 
 func Execute() error {
@@ -229,9 +253,14 @@ func checkRequired(dbURL, dir, action string) error {
 func runMigration(ctx context.Context, dir, dbURL, action string, jsonOut, noSnap bool) error {
 	n, executed, err := core.Run(ctx, dir, dbURL, action)
 
+	var applied *int
+	if jsonOut && strings.Fields(action)[0] == "status" && err == nil {
+		applied = appliedVersion(ctx, dbURL)
+	}
+
 	var reportErr error
 	if jsonOut {
-		reportErr = reportJSON(action, n, executed, err)
+		reportErr = reportJSON(action, n, executed, applied, err)
 	} else {
 		reportErr = reportHuman(dir, action, n, executed, err)
 	}
@@ -281,12 +310,13 @@ func maybeAutoSnapshot(ctx context.Context, dbURL, dir, verb string, jsonOut boo
 	}
 }
 
-func reportJSON(action string, n int, executed []string, err error) error {
+func reportJSON(action string, n int, executed []string, applied *int, err error) error {
 	result := jsonResult{
-		Action: strings.Fields(action)[0],
-		Count:  n,
-		Files:  executed,
-		OK:     err == nil,
+		Action:  strings.Fields(action)[0],
+		Count:   n,
+		Applied: applied,
+		Files:   executed,
+		OK:      err == nil,
 	}
 	if result.Files == nil {
 		result.Files = []string{}
