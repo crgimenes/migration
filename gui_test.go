@@ -388,10 +388,10 @@ func TestServeAsset(t *testing.T) {
 		url      string
 		wantMIME string
 	}{
-		{"root serves index", "app://migration/", "text/html"},
-		{"explicit index", "app://migration/index.html", "text/html"},
-		{"stylesheet", "app://migration/style.css", "text/css"},
-		{"script", "app://migration/app.js", "text/javascript"},
+		{"root serves index", "app://migration/", "text/html; charset=utf-8"},
+		{"explicit index", "app://migration/index.html", "text/html; charset=utf-8"},
+		{"stylesheet", "app://migration/style.css", "text/css; charset=utf-8"},
+		{"script", "app://migration/app.js", "text/javascript; charset=utf-8"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -402,8 +402,10 @@ func TestServeAsset(t *testing.T) {
 			if len(resp.Body) == 0 {
 				t.Errorf("serveAsset(%q) returned an empty body", tt.url)
 			}
-			if !strings.Contains(resp.MIMEType, tt.wantMIME) {
-				t.Errorf("MIME = %q, want it to contain %q", resp.MIMEType, tt.wantMIME)
+			// Exact match on purpose: the type must not vary with the
+			// machine's mime registry (a Windows CI run caught that).
+			if resp.MIMEType != tt.wantMIME {
+				t.Errorf("MIME = %q, want %q", resp.MIMEType, tt.wantMIME)
 			}
 		})
 	}

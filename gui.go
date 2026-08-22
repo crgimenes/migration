@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"mime"
 	"net/url"
 	"os"
 	"path"
@@ -621,11 +620,31 @@ func serveAsset(req *glaze.SchemeRequest) *glaze.SchemeResponse {
 	if err != nil {
 		return nil
 	}
-	ct := mime.TypeByExtension(path.Ext(name))
-	if ct == "" {
-		ct = "application/octet-stream"
+	return &glaze.SchemeResponse{Body: data, MIMEType: assetMIME(name)}
+}
+
+// assetMIME states the type of every extension the UI ships. The table
+// is explicit because mime.TypeByExtension answers from the system
+// (/etc/mime.types, the Windows registry), so the same asset could be
+// typed differently on a user's machine - and a webview that gets the
+// wrong type for a script refuses to run it.
+func assetMIME(name string) string {
+	switch path.Ext(name) {
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js":
+		return "text/javascript; charset=utf-8"
+	case ".json":
+		return "application/json"
+	case ".svg":
+		return "image/svg+xml"
+	case ".png":
+		return "image/png"
+	default:
+		return "application/octet-stream"
 	}
-	return &glaze.SchemeResponse{Body: data, MIMEType: ct}
 }
 
 // assetName turns a request URL into a clean embedded-FS name,

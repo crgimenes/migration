@@ -2,6 +2,7 @@ package introspect
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -11,15 +12,46 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// testDB connects to a database of this package's own, created on the
+// fly. Read models EVERY schema, public included, so sharing
+// DATABASE_URL with another test package is a race: `go test ./...`
+// runs packages concurrently, and core's PostgreSQL tests create and
+// drop tables in public. That made TestReadDeterministic fail in CI -
+// two reads straddling another package's DDL.
 func testDB(t *testing.T) *sqlx.DB {
 	t.Helper()
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
+	base := os.Getenv("DATABASE_URL")
+	if base == "" {
 		t.Skip("DATABASE_URL environment variable not set, skipping PostgreSQL introspection test")
 	}
-	db, err := sqlx.Connect("postgres", dbURL)
+
+	admin, err := sqlx.Connect("postgres", base)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
+	}
+	defer func() {
+		_ = admin.Close()
+	}()
+
+	const name = "migration_introspect_test"
+	_, err = admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)")
+	if err != nil {
+		t.Fatalf("failed to drop scratch database: %v", err)
+	}
+	_, err = admin.Exec("CREATE DATABASE " + name)
+	if err != nil {
+		t.Fatalf("failed to create scratch database: %v", err)
+	}
+
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatalf("failed to parse DATABASE_URL: %v", err)
+	}
+	u.Path = "/" + name
+
+	db, err := sqlx.Connect("postgres", u.String())
+	if err != nil {
+		t.Fatalf("failed to connect to scratch database: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = db.Close()
