@@ -2,12 +2,11 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/crgimenes/glaze"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -381,32 +380,39 @@ func TestGUIServicePickDirectoryHeadless(t *testing.T) {
 	}
 }
 
-func TestStartUIServer(t *testing.T) {
-	baseURL, err := startUIServer()
-	if err != nil {
-		t.Fatalf("startUIServer failed: %v", err)
+func TestServeAsset(t *testing.T) {
+	// The UI is served through the app:// scheme, not a loopback HTTP
+	// server: the sandbox forbids binding a listening socket.
+	tests := []struct {
+		name     string
+		url      string
+		wantMIME string
+	}{
+		{"root serves index", "app://migration/", "text/html"},
+		{"explicit index", "app://migration/index.html", "text/html"},
+		{"stylesheet", "app://migration/style.css", "text/css"},
+		{"script", "app://migration/app.js", "text/javascript"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := serveAsset(&glaze.SchemeRequest{URL: tt.url})
+			if resp == nil {
+				t.Fatalf("serveAsset(%q) = nil, want a response", tt.url)
+			}
+			if len(resp.Body) == 0 {
+				t.Errorf("serveAsset(%q) returned an empty body", tt.url)
+			}
+			if !strings.Contains(resp.MIMEType, tt.wantMIME) {
+				t.Errorf("MIME = %q, want it to contain %q", resp.MIMEType, tt.wantMIME)
+			}
+		})
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(baseURL + "/")
-	if err != nil {
-		t.Fatalf("GET failed: %v", err)
+	if serveAsset(&glaze.SchemeRequest{URL: "app://migration/nope.txt"}) != nil {
+		t.Error("a missing asset must answer nil (not found)")
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET / = %d, want 200", resp.StatusCode)
-	}
-
-	for _, path := range []string{"/style.css", "/app.js"} {
-		r, getErr := client.Get(baseURL + path)
-		if getErr != nil {
-			t.Fatalf("GET %s failed: %v", path, getErr)
-		}
-		_ = r.Body.Close()
-		if r.StatusCode != http.StatusOK {
-			t.Errorf("GET %s = %d, want 200", path, r.StatusCode)
-		}
+	// Path traversal must not escape the embedded FS.
+	if serveAsset(&glaze.SchemeRequest{URL: "app://migration/../../gui.go"}) != nil {
+		t.Error("traversal outside the embedded ui/ must not resolve")
 	}
 }

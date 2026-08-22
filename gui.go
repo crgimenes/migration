@@ -5,12 +5,11 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
-	"net"
-	"net/http"
+	"mime"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -611,27 +610,37 @@ func (s *guiService) Capture(name string) (*drift.Outcome, error) {
 	return drift.Capture(ctx, db, config, dir, name)
 }
 
-func startUIServer() (string, error) {
-	ui, err := fs.Sub(uiFS, "ui")
+// serveAsset answers app:// requests from the embedded ui/ directory.
+// A custom scheme replaces the loopback HTTP server the GUI used to
+// run: under the macOS App Sandbox binding a listening socket needs
+// com.apple.security.network.server, and opening a port to serve the
+// app to itself is a worse deal than the scheme in every way.
+func serveAsset(req *glaze.SchemeRequest) *glaze.SchemeResponse {
+	name := assetName(req.URL)
+	data, err := uiFS.ReadFile("ui/" + name)
 	if err != nil {
-		return "", fmt.Errorf("ui files: %w", err)
+		return nil
 	}
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("listen: %w", err)
+	ct := mime.TypeByExtension(path.Ext(name))
+	if ct == "" {
+		ct = "application/octet-stream"
 	}
+	return &glaze.SchemeResponse{Body: data, MIMEType: ct}
+}
 
-	srv := &http.Server{Handler: http.FileServerFS(ui), ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		_ = srv.Serve(ln)
-	}()
-
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		return "", fmt.Errorf("unexpected listener address %v", ln.Addr())
+// assetName turns a request URL into a clean embedded-FS name,
+// defaulting the root to index.html.
+func assetName(reqURL string) string {
+	p := reqURL
+	u, err := url.Parse(reqURL)
+	if err == nil && u.Path != "" {
+		p = u.Path
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d", addr.Port), nil
+	p = strings.TrimPrefix(path.Clean("/"+p), "/")
+	if p == "" || p == "." {
+		return "index.html"
+	}
+	return p
 }
 
 func installGUIMenu(w glaze.WebView) {
@@ -714,12 +723,10 @@ func resolveGUITarget(dbURL, dir string) (string, string) {
 func runGUI(dbURL, dir string, debug bool) error {
 	dbURL, dir = resolveGUITarget(dbURL, dir)
 
-	baseURL, err := startUIServer()
-	if err != nil {
-		return err
-	}
-
-	w, err := glaze.New(debug)
+	w, err := glaze.NewWithOptions(glaze.Options{
+		Debug:          debug,
+		SchemeHandlers: map[string]glaze.SchemeHandler{"app": serveAsset},
+	})
 	if err != nil {
 		return err
 	}
@@ -748,7 +755,7 @@ func runGUI(dbURL, dir string, debug bool) error {
 		return err
 	}
 
-	w.Navigate(baseURL)
+	w.Navigate("app://migration/")
 	w.Run()
 	return nil
 }
