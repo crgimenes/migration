@@ -109,6 +109,37 @@ func TestGetDatabaseConfigWindowsPath(t *testing.T) {
 	}
 }
 
+func TestRunRefusesUnreadableDir(t *testing.T) {
+	// A missing directory must NOT read as "no migrations": Glob hides
+	// it behind an empty result, so `status` would report everything up
+	// to date and `up` would claim success having applied nothing.
+	ctx := context.Background()
+	dbURL := "sqlite://" + filepath.Join(t.TempDir(), "guard.db")
+	missing := filepath.Join(t.TempDir(), "not-here")
+
+	for _, action := range []string{"status", "up", "down"} {
+		t.Run(action, func(t *testing.T) {
+			_, _, err := Run(ctx, missing, dbURL, action)
+			if err == nil {
+				t.Fatalf("Run(%q) on a missing directory returned no error", action)
+			}
+			if !strings.Contains(err.Error(), "cannot read migrations directory") {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+
+	// An empty directory is legitimate: a project with no migrations.
+	empty := t.TempDir()
+	n, _, err := Run(ctx, empty, dbURL, "status")
+	if err != nil {
+		t.Fatalf("empty directory must be accepted: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("status on an empty directory = %d, want 0", n)
+	}
+}
+
 func TestRunUnsupportedScheme(t *testing.T) {
 	_, _, err := Run(context.Background(), "testdata", "mysql://user:pass@localhost/db", "up")
 	if err == nil {

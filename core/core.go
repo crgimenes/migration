@@ -196,6 +196,21 @@ func DeleteMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, v
 	return nil
 }
 
+// checkMigrationsDir refuses a directory that cannot be listed. Both
+// upFiles and downFiles glob it, and filepath.Glob reports NO error for
+// a missing or unreadable directory - it just returns nothing. Without
+// this, a typo in the directory is indistinguishable from "everything
+// is up to date", and `up` reports success having applied nothing.
+// An empty directory stays legitimate: a project may have no
+// migrations yet.
+func checkMigrationsDir(dir string) error {
+	_, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("cannot read migrations directory: %w", err)
+	}
+	return nil
+}
+
 func upFiles(dir string) (files []string, err error) {
 	files, err = filepath.Glob(filepath.Join(dir, "*.up.sql"))
 	return
@@ -380,14 +395,19 @@ func Run(ctx context.Context, source, dbURL, action string) (int, []string, erro
 // RunWithExistingDatabase applies the action on an already open connection.
 // All migrations in a batch commit or roll back together.
 func RunWithExistingDatabase(ctx context.Context, source, action string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
-	err := CheckAndCreateMigrationsTable(ctx, db, config)
+	m := strings.Fields(action)
+	if len(m) == 0 {
+		return 0, nil, errors.New("action cannot be empty")
+	}
+
+	err := checkMigrationsDir(source)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	m := strings.Fields(action)
-	if len(m) == 0 {
-		return 0, nil, errors.New("action cannot be empty")
+	err = CheckAndCreateMigrationsTable(ctx, db, config)
+	if err != nil {
+		return 0, nil, err
 	}
 
 	if m[0] == "status" {
