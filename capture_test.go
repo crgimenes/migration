@@ -12,8 +12,8 @@ import (
 
 	"github.com/crgimenes/migration/introspect"
 	"github.com/crgimenes/migration/snapshot"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 )
 
 // scratchDatabase creates a dedicated database so capture tests never
@@ -25,7 +25,7 @@ func scratchDatabase(t *testing.T, name string) string {
 		t.Skip("DATABASE_URL environment variable not set, skipping capture integration test")
 	}
 
-	admin, err := sqlx.Connect("postgres", base)
+	admin, err := sqlx.Connect("pgx", base)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestCaptureRoundTrip(t *testing.T) {
 		t.Fatalf("auto-snapshot missing after up: %v", err)
 	}
 
-	db, err := sqlx.Connect("postgres", dbURL)
+	db, err := sqlx.Connect("pgx", dbURL)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestCaptureDestructiveDownIsCommented(t *testing.T) {
 		t.Fatalf("up failed: %v", err)
 	}
 
-	db, err := sqlx.Connect("postgres", dbURL)
+	db, err := sqlx.Connect("pgx", dbURL)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}

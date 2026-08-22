@@ -5,7 +5,7 @@
 // embedding applications (keikiban) share this one implementation.
 //
 // The caller owns the database connection. Nothing here registers SQL
-// drivers, so importing this package does not drag lib/pq or the
+// drivers, so importing this package does not drag the PostgreSQL or the
 // SQLite driver into the consumer's binary; wrap an existing *sql.DB
 // with sqlx.NewDb when the connection comes from another stack (pgx
 // stdlib, for example).

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 )
 
 // testDB connects to a database of this package's own, created on the
@@ -25,7 +25,7 @@ func testDB(t *testing.T) *sqlx.DB {
 		t.Skip("DATABASE_URL environment variable not set, skipping PostgreSQL introspection test")
 	}
 
-	admin, err := sqlx.Connect("postgres", base)
+	admin, err := sqlx.Connect("pgx", base)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -49,7 +49,7 @@ func testDB(t *testing.T) *sqlx.DB {
 	}
 	u.Path = "/" + name
 
-	db, err := sqlx.Connect("postgres", u.String())
+	db, err := sqlx.Connect("pgx", u.String())
 	if err != nil {
 		t.Fatalf("failed to connect to scratch database: %v", err)
 	}

@@ -2,7 +2,7 @@
 // tracking applied versions in the schema_migrations table.
 //
 // The package registers no SQL drivers: the migration binary brings
-// lib/pq and modernc.org/sqlite itself, and an embedding application
+// pgx/stdlib and modernc.org/sqlite itself, and an embedding application
 // (keikiban) registers whatever stack it already uses - importing core
 // must not drag drivers into the consumer's binary.
 package core
@@ -65,9 +65,12 @@ func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
 
 	switch s {
 	case "postgres", "postgresql":
+		// "pgx" is the name pgx's database/sql adapter registers; sqlx maps
+		// it to $1 placeholders the same as "postgres". The binary (or the
+		// embedding application) provides the driver, never this package.
 		return &DatabaseConfig{
 			Type:                PostgreSQL,
-			DriverName:          "postgres",
+			DriverName:          "pgx",
 			Placeholder:         "$1",
 			CheckTableExistsSQL: `SELECT count(*) FROM information_schema.tables WHERE table_name='schema_migrations'`,
 			CreateTableSQL:      `CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`,

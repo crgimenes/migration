@@ -125,13 +125,13 @@ func TestPostgreSQLURLParsing(t *testing.T) {
 	}{
 		{
 			url:            "postgres://user:pass@localhost:5432/dbname",
-			expectedDriver: "postgres",
+			expectedDriver: "pgx",
 			expectedType:   PostgreSQL,
 			shouldFail:     false,
 		},
 		{
 			url:            "postgresql://user:pass@localhost:5432/dbname",
-			expectedDriver: "postgres",
+			expectedDriver: "pgx",
 			expectedType:   PostgreSQL,
 			shouldFail:     false,
 		},
