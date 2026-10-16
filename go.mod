@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/crgimenes/filo v0.0.23
-	github.com/crgimenes/glaze v0.0.61
-	github.com/crgimenes/native v0.1.11
+	github.com/crgimenes/glaze v0.0.81
+	github.com/crgimenes/native v0.1.16
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jmoiron/sqlx v1.4.0
 	modernc.org/sqlite v1.59.0
@@ -13,7 +13,7 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.11.0 // indirect
+	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
