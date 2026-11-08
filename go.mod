@@ -8,7 +8,7 @@ require (
 	github.com/crgimenes/native v0.1.18
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jmoiron/sqlx v1.4.0
-	modernc.org/sqlite v1.61.1
+	modernc.org/sqlite v1.62.0
 )
 
 require (
