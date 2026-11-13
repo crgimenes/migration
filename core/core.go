@@ -8,17 +8,16 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/jmoiron/sqlx"
 )
 
 type DatabaseType int
@@ -65,9 +64,9 @@ func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
 
 	switch s {
 	case "postgres", "postgresql":
-		// "pgx" is the name pgx's database/sql adapter registers; sqlx maps
-		// it to $1 placeholders the same as "postgres". The binary (or the
-		// embedding application) provides the driver, never this package.
+		// "pgx" is the name pgx's database/sql adapter registers. The
+		// binary (or the embedding application) provides the driver, never
+		// this package.
 		return &DatabaseConfig{
 			Type:                PostgreSQL,
 			DriverName:          "pgx",
@@ -88,12 +87,12 @@ func GetDatabaseConfig(dbURL string) (*DatabaseConfig, error) {
 	}
 }
 
-func OpenDatabase(dbURL string, config *DatabaseConfig) (*sqlx.DB, error) {
+func OpenDatabase(dbURL string, config *DatabaseConfig) (*sql.DB, error) {
 	if config.Type == SQLite {
 		dbURL = SQLiteDataSource(dbURL)
 	}
 
-	db, err := sqlx.Open(config.DriverName, dbURL)
+	db, err := sql.Open(config.DriverName, dbURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -110,9 +109,9 @@ func OpenDatabase(dbURL string, config *DatabaseConfig) (*sqlx.DB, error) {
 	return db, nil
 }
 
-func CheckAndCreateMigrationsTable(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) error {
+func CheckAndCreateMigrationsTable(ctx context.Context, db *sql.DB, config *DatabaseConfig) error {
 	var count int
-	err := db.GetContext(ctx, &count, config.CheckTableExistsSQL)
+	err := db.QueryRowContext(ctx, config.CheckTableExistsSQL).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("failed to check migrations table: %w", err)
 	}
@@ -127,26 +126,10 @@ func CheckAndCreateMigrationsTable(ctx context.Context, db *sqlx.DB, config *Dat
 	return nil
 }
 
-func GetMigrationCount(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (int, error) {
-	err := CheckAndCreateMigrationsTable(ctx, db, config)
-	if err != nil {
-		return 0, err
-	}
-
-	var count int
-	query := "SELECT COUNT(*) FROM schema_migrations"
-	err = db.GetContext(ctx, &count, query)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get migration count: %w", err)
-	}
-
-	return count, nil
-}
-
 // GetMigrationMax returns the highest applied migration version, 0 when
 // none. Creates the tracking table on first contact, like every other
 // entry point.
-func GetMigrationMax(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (int, error) {
+func GetMigrationMax(ctx context.Context, db *sql.DB, config *DatabaseConfig) (int, error) {
 	err := CheckAndCreateMigrationsTable(ctx, db, config)
 	if err != nil {
 		return 0, err
@@ -154,7 +137,7 @@ func GetMigrationMax(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (
 
 	var max sql.NullInt64
 	query := "SELECT MAX(version) FROM schema_migrations"
-	err = db.GetContext(ctx, &max, query)
+	err = db.QueryRowContext(ctx, query).Scan(&max)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get max migration version: %w", err)
 	}
@@ -166,23 +149,8 @@ func GetMigrationMax(ctx context.Context, db *sqlx.DB, config *DatabaseConfig) (
 	return int(max.Int64), nil
 }
 
-func GetMigrationMaxTx(ctx context.Context, tx *sqlx.Tx) (int, error) {
-	var max sql.NullInt64
-	query := "SELECT MAX(version) FROM schema_migrations"
-	err := tx.GetContext(ctx, &max, query)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get max migration version: %w", err)
-	}
-
-	if !max.Valid {
-		return 0, nil
-	}
-
-	return int(max.Int64), nil
-}
-
-func InsertMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, version int) error {
-	query := "INSERT INTO schema_migrations (version) VALUES (" + config.Placeholder + ")"
+func InsertMigration(ctx context.Context, tx *sql.Tx, config *DatabaseConfig, version int) error {
+	query := "INSERT INTO schema_migrations (version) VALUES (" + config.Placeholder + ")" // #nosec G202 -- only the driver placeholder ($1 or ?) is concatenated; version travels as a parameter
 	_, err := tx.ExecContext(ctx, query, version)
 	if err != nil {
 		return fmt.Errorf("failed to insert migration version %d: %w", version, err)
@@ -190,8 +158,8 @@ func InsertMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, v
 	return nil
 }
 
-func DeleteMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, version int) error {
-	query := "DELETE FROM schema_migrations WHERE version = " + config.Placeholder
+func DeleteMigration(ctx context.Context, tx *sql.Tx, config *DatabaseConfig, version int) error {
+	query := "DELETE FROM schema_migrations WHERE version = " + config.Placeholder // #nosec G202 -- only the driver placeholder ($1 or ?) is concatenated; version travels as a parameter
 	_, err := tx.ExecContext(ctx, query, version)
 	if err != nil {
 		return fmt.Errorf("failed to delete migration version %d: %w", version, err)
@@ -199,8 +167,8 @@ func DeleteMigration(ctx context.Context, tx *sqlx.Tx, config *DatabaseConfig, v
 	return nil
 }
 
-// checkMigrationsDir refuses a directory that cannot be listed. Both
-// upFiles and downFiles glob it, and filepath.Glob reports NO error for
+// checkMigrationsDir refuses a directory that cannot be listed.
+// migrationFiles globs it, and filepath.Glob reports NO error for
 // a missing or unreadable directory - it just returns nothing. Without
 // this, a typo in the directory is indistinguishable from "everything
 // is up to date", and `up` reports success having applied nothing.
@@ -214,102 +182,154 @@ func checkMigrationsDir(dir string) error {
 	return nil
 }
 
-func upFiles(dir string) (files []string, err error) {
-	files, err = filepath.Glob(filepath.Join(dir, "*.up.sql"))
-	return
-}
-
-// downFiles returns down files newest-first. n is the number of applied
-// migrations: the slice drops down files newer than the applied set, so
-// execDown reverts only what the database actually has.
-func downFiles(dir string, n int) (files []string, err error) {
-	files, err = filepath.Glob(filepath.Join(dir, "*.down.sql"))
+// migrationFiles lists the dir's files ending in suffix, ordered by
+// numeric version (so 9_x sorts before 10_x even without zero padding).
+// A file without a version, or two files sharing one, is refused: either
+// would make the applied set ambiguous.
+func migrationFiles(dir, suffix string) ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*"+suffix))
 	if err != nil {
 		return nil, err
 	}
-	if n > len(files) {
-		return nil, fmt.Errorf("%d migrations applied but only %d down files in %s", n, len(files), dir)
+	seen := map[int]string{}
+	for _, f := range files {
+		v := FileVersion(f)
+		if v <= 0 {
+			return nil, fmt.Errorf("migration file %s has no numeric version prefix", f)
+		}
+		prev, dup := seen[v]
+		if dup {
+			return nil, fmt.Errorf("migration files %s and %s share version %d", prev, f, v)
+		}
+		seen[v] = f
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(files)))
-	files = files[len(files)-n:]
-	return
+	slices.SortFunc(files, func(a, b string) int {
+		return cmp.Compare(FileVersion(a), FileVersion(b))
+	})
+	return files, nil
 }
 
-func up(ctx context.Context, source string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
-	files, err := upFiles(source)
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func appliedVersions(ctx context.Context, q querier) ([]int, error) {
+	rows, err := q.QueryContext(ctx, "SELECT version FROM schema_migrations ORDER BY version")
 	if err != nil {
-		return
+		return nil, fmt.Errorf("failed to read applied migrations: %w", err)
 	}
-	number, executed, err = execUp(ctx, files, start, n, tx, config)
-	return
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var versions []int
+	for rows.Next() {
+		var v int
+		err = rows.Scan(&v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read applied migrations: %w", err)
+		}
+		versions = append(versions, v)
+	}
+	return versions, rows.Err()
 }
 
-func down(ctx context.Context, source string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
-	nfiles, err := GetMigrationMaxTx(ctx, tx)
+// pendingFiles keeps the files whose version is not applied, in order.
+// A file numbered below an applied version still counts as pending: it
+// arrived late (merged branch) and has never run here.
+func pendingFiles(ctx context.Context, q querier, dir string) ([]string, error) {
+	files, err := migrationFiles(dir, ".up.sql")
 	if err != nil {
-		return
+		return nil, err
 	}
-	if n == 0 {
-		n = nfiles
-	}
-	files, err := downFiles(source, nfiles)
+	applied, err := appliedVersions(ctx, q)
 	if err != nil {
-		return
+		return nil, err
 	}
-	number, executed, err = execDown(ctx, files, start, n, tx, config)
-	return
+
+	var pending []string
+	for _, f := range files {
+		_, done := slices.BinarySearch(applied, FileVersion(f))
+		if !done {
+			pending = append(pending, f)
+		}
+	}
+	return pending, nil
 }
 
-func execUp(ctx context.Context, files []string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
-	if n == 0 {
-		n = len(files) - start
+// up applies the first n pending migrations, all of them when n is 0.
+func up(ctx context.Context, dir string, n int, tx *sql.Tx, config *DatabaseConfig) (int, []string, error) {
+	pending, err := pendingFiles(ctx, tx, dir)
+	if err != nil {
+		return 0, nil, err
 	}
-	for i := start; i < len(files) && i < start+n; i++ {
-		v := version(files[i])
-		if err = apply(ctx, files[i], tx); err != nil {
-			return
-		}
-		if err = InsertMigration(ctx, tx, config, v); err != nil {
-			return
-		}
-		executed = append(executed, files[i])
-		number++
+	if n > 0 && n < len(pending) {
+		pending = pending[:n]
 	}
-	return
+
+	for _, f := range pending {
+		err = apply(ctx, f, tx)
+		if err != nil {
+			return 0, nil, err
+		}
+		err = InsertMigration(ctx, tx, config, FileVersion(f))
+		if err != nil {
+			return 0, nil, err
+		}
+	}
+	return len(pending), pending, nil
 }
 
-func execDown(ctx context.Context, files []string, start, n int, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
-	if n == 0 {
-		n = len(files) - start
+// down reverts the n highest applied versions, newest first, each through
+// the .down.sql file of the same version; all of them when n is 0.
+func down(ctx context.Context, dir string, n int, tx *sql.Tx, config *DatabaseConfig) (int, []string, error) {
+	files, err := migrationFiles(dir, ".down.sql")
+	if err != nil {
+		return 0, nil, err
 	}
-	for i := start; i < len(files) && i < start+n; i++ {
-		v := version(files[i])
-		if err = apply(ctx, files[i], tx); err != nil {
-			return
-		}
-		if err = DeleteMigration(ctx, tx, config, v); err != nil {
-			return
-		}
-		executed = append(executed, files[i])
-		number++
+	applied, err := appliedVersions(ctx, tx)
+	if err != nil {
+		return 0, nil, err
 	}
-	return
+	slices.Reverse(applied)
+	if n > 0 && n < len(applied) {
+		applied = applied[:n]
+	}
+
+	byVersion := map[int]string{}
+	for _, f := range files {
+		byVersion[FileVersion(f)] = f
+	}
+
+	executed := make([]string, 0, len(applied))
+	for _, v := range applied {
+		f, ok := byVersion[v]
+		if !ok {
+			return 0, nil, fmt.Errorf("no down file for applied version %d in %s", v, dir)
+		}
+		err = apply(ctx, f, tx)
+		if err != nil {
+			return 0, nil, err
+		}
+		err = DeleteMigration(ctx, tx, config, v)
+		if err != nil {
+			return 0, nil, err
+		}
+		executed = append(executed, f)
+	}
+	return len(executed), executed, nil
 }
 
 // FileVersion extracts the numeric version prefix of a migration file
 // name; 0 when the name has no valid prefix.
 func FileVersion(path string) int {
-	return version(path)
-}
-
-func version(path string) int {
 	_, file := filepath.Split(path)
 	v, _, _ := strings.Cut(file, "_")
 	ver, _ := strconv.Atoi(v)
 	return ver
 }
 
-func apply(ctx context.Context, path string, tx *sqlx.Tx) error {
+func apply(ctx context.Context, path string, tx *sql.Tx) error {
 	content, err := os.ReadFile(path) // #nosec G304 -- path comes from the user-provided migrations dir
 	if err != nil {
 		return fmt.Errorf("failed to read migration file %s: %w", path, err)
@@ -331,48 +351,18 @@ func parsePar(m []string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse number parameter: %w", err)
 	}
+	if n < 0 {
+		return 0, fmt.Errorf("migration count must not be negative: %d", n)
+	}
 	return n, nil
 }
 
-func status(ctx context.Context, source string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
-	executed, err := GetMigrationCount(ctx, db, config)
+func status(ctx context.Context, dir string, db *sql.DB) (int, []string, error) {
+	pending, err := pendingFiles(ctx, db, dir)
 	if err != nil {
 		return 0, nil, err
 	}
-	up, err := upFiles(source)
-	if err != nil {
-		return 0, nil, err
-	}
-	diff := len(up) - executed
-	if diff == 0 {
-		return 0, nil, nil
-	}
-	if diff < 0 {
-		diff = -1 * diff
-	}
-	return diff, up[len(up)-diff:], nil
-}
-
-func doDown(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
-	n, err := parsePar(m)
-	if err != nil {
-		return
-	}
-	number, executed, err = down(ctx, source, 0, n, tx, config)
-	return
-}
-
-func doUp(ctx context.Context, m []string, source string, tx *sqlx.Tx, config *DatabaseConfig) (number int, executed []string, err error) {
-	n, err := parsePar(m)
-	if err != nil {
-		return
-	}
-	start, err := GetMigrationMaxTx(ctx, tx)
-	if err != nil {
-		return
-	}
-	number, executed, err = up(ctx, source, start, n, tx, config)
-	return
+	return len(pending), pending, nil
 }
 
 func Run(ctx context.Context, source, dbURL, action string) (int, []string, error) {
@@ -397,7 +387,7 @@ func Run(ctx context.Context, source, dbURL, action string) (int, []string, erro
 
 // RunWithExistingDatabase applies the action on an already open connection.
 // All migrations in a batch commit or roll back together.
-func RunWithExistingDatabase(ctx context.Context, source, action string, db *sqlx.DB, config *DatabaseConfig) (int, []string, error) {
+func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql.DB, config *DatabaseConfig) (int, []string, error) {
 	m := strings.Fields(action)
 	if len(m) == 0 {
 		return 0, nil, errors.New("action cannot be empty")
@@ -414,10 +404,15 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 	}
 
 	if m[0] == "status" {
-		return status(ctx, source, db, config)
+		return status(ctx, source, db)
 	}
 
-	tx, err := db.BeginTxx(ctx, nil)
+	n, err := parsePar(m)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to begin global transaction: %w", err)
 	}
@@ -431,9 +426,9 @@ func RunWithExistingDatabase(ctx context.Context, source, action string, db *sql
 
 	switch m[0] {
 	case "up":
-		number, executed, err = doUp(ctx, m, source, tx, config)
+		number, executed, err = up(ctx, source, n, tx, config)
 	case "down":
-		number, executed, err = doDown(ctx, m, source, tx, config)
+		number, executed, err = down(ctx, source, n, tx, config)
 	default:
 		return 0, nil, fmt.Errorf("unknown action: %s", m[0])
 	}

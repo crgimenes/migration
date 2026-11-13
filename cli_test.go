@@ -61,15 +61,20 @@ func TestFormatFileSize(t *testing.T) {
 }
 
 func TestColorize(t *testing.T) {
+	orig := stdoutIsTerminal
+	stdoutIsTerminal = true
+	defer func() { stdoutIsTerminal = orig }()
+
+	t.Setenv("NO_COLOR", "")
 	t.Setenv("TERM", "dumb")
-	got := colorize("text", ColorRed)
+	got := colorize("text", ColorBrightRed)
 	if got != "text" {
 		t.Errorf("colorize with TERM=dumb = %q, want plain text", got)
 	}
 
 	t.Setenv("TERM", "xterm-256color")
-	got = colorize("text", ColorRed)
-	want := ColorRed + "text" + ColorReset
+	got = colorize("text", ColorBrightRed)
+	want := ColorBrightRed + "text" + ColorReset
 	if got != want {
 		t.Errorf("colorize with TERM=xterm = %q, want %q", got, want)
 	}

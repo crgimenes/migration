@@ -54,10 +54,11 @@ func TestTransactionRollbackOnError(t *testing.T) {
 	t.Logf("Files processed: %v", executed)
 
 	// Verify if rollback worked - should have 0 migrations in table
-	count, err := GetMigrationCount(ctx, db, config)
+	applied, err := appliedVersions(ctx, db)
 	if err != nil {
 		t.Fatalf("Failed to verify count: %v", err)
 	}
+	count := len(applied)
 
 	t.Logf("Number of migrations in database after rollback: %d", count)
 	if count != 0 {
@@ -66,7 +67,7 @@ func TestTransactionRollbackOnError(t *testing.T) {
 
 	// Verify if table was not created (rollback should have undone everything)
 	var tableExists int
-	err = db.GetContext(ctx, &tableExists, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='test_table'")
+	err = db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='test_table'").Scan(&tableExists)
 	if err != nil {
 		t.Fatalf("Failed to verify table existence: %v", err)
 	}

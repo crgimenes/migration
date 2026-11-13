@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/crgimenes/glaze"
-	"github.com/jmoiron/sqlx"
 )
 
 func TestRedactURL(t *testing.T) {
@@ -165,7 +165,7 @@ func TestGUIServiceDriftAndReport(t *testing.T) {
 		t.Errorf("expected no drift right after up, got %+v", d)
 	}
 
-	db, err := sqlx.Connect("pgx", dbURL)
+	db, err := sql.Open("pgx", dbURL)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestGUIServiceCaptureFlowPostgres(t *testing.T) {
 		t.Fatalf("Connect failed: %v", err)
 	}
 
-	db, err := sqlx.Connect("pgx", dbURL)
+	db, err := sql.Open("pgx", dbURL)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}

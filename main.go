@@ -6,7 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,15 +19,8 @@ import (
 )
 
 const (
-	ColorReset  = "\033[0m"
-	ColorRed    = "\033[31m"
-	ColorGreen  = "\033[32m"
-	ColorYellow = "\033[33m"
-	ColorBlue   = "\033[34m"
-	ColorPurple = "\033[35m"
-	ColorCyan   = "\033[36m"
-	ColorWhite  = "\033[37m"
-	ColorBold   = "\033[1m"
+	ColorReset = "\033[0m"
+	ColorBold  = "\033[1m"
 
 	ColorBrightRed    = "\033[91m"
 	ColorBrightGreen  = "\033[92m"
@@ -37,9 +30,18 @@ const (
 	ColorBrightCyan   = "\033[96m"
 )
 
+// stdoutIsTerminal keeps escape codes out of piped or redirected output;
+// swappable for tests.
+var stdoutIsTerminal = isTerminal(os.Stdout)
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 func isColorSupported() bool {
 	term := os.Getenv("TERM")
-	return term != "dumb" && term != ""
+	return stdoutIsTerminal && term != "dumb" && term != "" && os.Getenv("NO_COLOR") == ""
 }
 
 func colorize(text, color string) string {
@@ -73,14 +75,14 @@ func printHighlight(text string) string {
 	return colorize(text, ColorBrightPurple)
 }
 
-func printBanner() {
+func printBanner(w io.Writer) {
 	banner := `
 ╔══════════════════════════════════════════════╗
 ║              ↑ Migration Tool                ║
 ║         Database Migration Assistant         ║
 ╚══════════════════════════════════════════════╝
 `
-	fmt.Print(printHeader(banner))
+	_, _ = fmt.Fprint(w, printHeader(banner))
 }
 
 func printSeparator() {
@@ -122,11 +124,7 @@ type jsonResult struct {
 // the database cannot answer (the status itself already reported the
 // real error).
 func appliedVersion(ctx context.Context, dbURL string) *int {
-	config, err := core.GetDatabaseConfig(dbURL)
-	if err != nil {
-		return nil
-	}
-	db, err := core.OpenDatabase(dbURL, config)
+	db, config, err := openDB(dbURL)
 	if err != nil {
 		return nil
 	}
@@ -150,37 +148,41 @@ func Execute() error {
 		debug      = flag.Bool("debug", false, "Enable diagnostics (GUI devtools)")
 		version    = flag.Bool("version", false, "Show version")
 		help       = flag.Bool("help", false, "Show help")
+		helpShort  = flag.Bool("h", false, "Show help")
 	)
 
 	flag.Usage = func() {
-		printBanner()
-		fmt.Fprintf(os.Stderr, "%s %s\n\n", printInfo("Usage:"), printHighlight(os.Args[0]+" [options] <command> [args]"))
-		fmt.Fprintf(os.Stderr, "%s\n", printInfo("Commands:"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("(none)"), printInfo("# Open the GUI (default since v5)"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("up [n] | down [n] | status"), printInfo("# Run or inspect migrations"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("snapshot"), printInfo("# Record the live schema (PostgreSQL)"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("diff"), printInfo("# Show drift vs the last snapshot (exit 2 when found)"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("capture [name]"), printInfo("# Turn drift into an up/down migration pair"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight("report <from> <to>"), printInfo("# Diff two points: snapshot version, `live`, or URL"))
-		fmt.Fprintf(os.Stderr, "\n%s\n", printInfo("Options:"))
+		out := flag.CommandLine.Output()
+		p := func(format string, a ...any) { _, _ = fmt.Fprintf(out, format, a...) }
+		printBanner(out)
+		p("%s %s\n\n", printInfo("Usage:"), printHighlight(os.Args[0]+" [options] <command> [args]"))
+		p("%s\n", printInfo("Commands:"))
+		p("  %s %s\n", printHighlight("(none)"), printInfo("# Open the GUI (default since v5)"))
+		p("  %s %s\n", printHighlight("up [n] | down [n] | status"), printInfo("# Run or inspect migrations"))
+		p("  %s %s\n", printHighlight("snapshot"), printInfo("# Record the live schema (PostgreSQL)"))
+		p("  %s %s\n", printHighlight("diff"), printInfo("# Show drift vs the last snapshot (exit 2 when found)"))
+		p("  %s %s\n", printHighlight("capture [name]"), printInfo("# Turn drift into an up/down migration pair"))
+		p("  %s %s\n", printHighlight("report <from> <to>"), printInfo("# Diff two points: snapshot version, `live`, or URL"))
+		p("\n%s\n", printInfo("Options:"))
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\n%s\n", printInfo("Examples:"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" status"), printInfo("# Check migration status"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" up"), printInfo("# Run all pending migrations"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" -json diff"), printInfo("# Drift check for scripts and agents"))
-		fmt.Fprintf(os.Stderr, "  %s %s\n", printHighlight(os.Args[0]+" report 3 live"), printInfo("# What changed since snapshot 3"))
+		p("\n%s\n", printInfo("Examples:"))
+		p("  %s %s\n", printHighlight(os.Args[0]+" status"), printInfo("# Check migration status"))
+		p("  %s %s\n", printHighlight(os.Args[0]+" up"), printInfo("# Run all pending migrations"))
+		p("  %s %s\n", printHighlight(os.Args[0]+" -json diff"), printInfo("# Drift check for scripts and agents"))
+		p("  %s %s\n", printHighlight(os.Args[0]+" report 3 live"), printInfo("# What changed since snapshot 3"))
 	}
 
 	flag.Parse()
 
 	if *version {
-		printBanner()
+		printBanner(os.Stdout)
 		fmt.Printf("%s %s\n", printInfo("Version:"), printHighlight(Version))
 		fmt.Printf("%s %s\n", printInfo("Supports:"), printHighlight("PostgreSQL, SQLite"))
 		return nil
 	}
 
-	if *help {
+	if *help || *helpShort {
+		flag.CommandLine.SetOutput(os.Stdout)
 		flag.Usage()
 		return nil
 	}
@@ -245,9 +247,8 @@ func checkRequired(dbURL, dir, action string) error {
 	if missing == "" {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "%s %s\n", printError("● Error:"), missing)
 	flag.Usage()
-	return fmt.Errorf("%s", missing)
+	return errors.New(missing)
 }
 
 func runMigration(ctx context.Context, dir, dbURL, action string, jsonOut, noSnap bool) error {
@@ -258,11 +259,12 @@ func runMigration(ctx context.Context, dir, dbURL, action string, jsonOut, noSna
 		applied = appliedVersion(ctx, dbURL)
 	}
 
-	var reportErr error
+	reportErr := err
 	if jsonOut {
 		reportErr = reportJSON(action, n, executed, applied, err)
-	} else {
-		reportErr = reportHuman(dir, action, n, executed, err)
+	}
+	if !jsonOut && err == nil {
+		reportHuman(dir, action, n, executed)
 	}
 
 	if reportErr == nil && !noSnap {
@@ -331,21 +333,21 @@ func reportJSON(action string, n int, executed []string, applied *int, err error
 	return err
 }
 
-func reportHuman(dir, action string, n int, executed []string, err error) error {
-	switch strings.Fields(action)[0] {
+func reportHuman(dir, action string, n int, executed []string) {
+	verb := strings.Fields(action)[0]
+	switch verb {
 	case "status":
 		fmt.Printf("\n%s\n", printHeader("● Migration Status"))
 		printSeparator()
 		fmt.Printf("%s %s\n", printInfo("→ Checking migrations in:"), printHighlight(dir))
-		if n == 0 && err == nil {
+		if n == 0 {
 			fmt.Printf("%s %s\n\n", printSuccess("● All migrations are up to date!"), "No pending migrations.")
-		} else if err == nil {
-			fmt.Printf("%s %s %s\n", printWarning("● Pending migrations:"), printHighlight(fmt.Sprintf("%d", n)), "need to be executed")
-			printSeparator()
-			printFileList(executed, printInfo("●"))
+			return
 		}
+		fmt.Printf("%s %s %s\n", printWarning("● Pending migrations:"), printHighlight(fmt.Sprintf("%d", n)), "need to be executed")
+		printSeparator()
+		printFileList(executed, printInfo("●"))
 	case "up", "down":
-		verb := strings.Fields(action)[0]
 		actionIcon := "↑"
 		actionName := "UP"
 		if verb == "down" {
@@ -357,19 +359,14 @@ func reportHuman(dir, action string, n int, executed []string, err error) error 
 		printSeparator()
 		fmt.Printf("%s %s\n", printInfo("→ Location:"), printHighlight(dir))
 
-		if n == 0 && err == nil {
+		if n == 0 {
 			fmt.Printf("%s %s\n\n", printInfo("● Result:"), "No migrations to execute")
-		} else if err == nil {
-			fmt.Printf("%s %s %s\n", printSuccess("● Executed:"), printHighlight(fmt.Sprintf("%d", n)), "migrations")
-			printSeparator()
-			printFileList(executed, printSuccess("●"))
+			return
 		}
+		fmt.Printf("%s %s %s\n", printSuccess("● Executed:"), printHighlight(fmt.Sprintf("%d", n)), "migrations")
+		printSeparator()
+		printFileList(executed, printSuccess("●"))
 	}
-
-	if err != nil {
-		fmt.Printf("\n%s %s\n", printError("● Error:"), err.Error())
-	}
-	return err
 }
 
 func printFileList(files []string, bullet string) {
@@ -393,6 +390,7 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "%s %v\n", printError("● Error:"), err)
+		os.Exit(1)
 	}
 }

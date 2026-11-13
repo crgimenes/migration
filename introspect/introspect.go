@@ -7,11 +7,10 @@ package introspect
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-
-	"github.com/jmoiron/sqlx"
 )
 
 // FormatVersion is bumped when the model shape changes; Load refuses
@@ -77,7 +76,7 @@ const excludedSchemas = `('pg_catalog', 'information_schema', 'pg_toast')`
 
 // Read introspects the connected database. Every query orders its
 // results, so two reads of the same schema produce identical models.
-func Read(ctx context.Context, db *sqlx.DB) (*Schema, error) {
+func Read(ctx context.Context, db *sql.DB) (*Schema, error) {
 	schema := &Schema{Format: FormatVersion}
 
 	tables, index, err := readTables(ctx, db)
@@ -122,7 +121,7 @@ func tableKey(schema, name string) string {
 	return schema + "." + name
 }
 
-func readTables(ctx context.Context, db *sqlx.DB) ([]string, map[string]*Table, error) {
+func readTables(ctx context.Context, db *sql.DB) ([]string, map[string]*Table, error) {
 	const query = `SELECT
 			n.nspname, -- 1
 			c.relname  -- 2
@@ -160,7 +159,7 @@ func readTables(ctx context.Context, db *sqlx.DB) ([]string, map[string]*Table, 
 	return keys, index, rows.Err()
 }
 
-func readColumns(ctx context.Context, db *sqlx.DB, index map[string]*Table) error {
+func readColumns(ctx context.Context, db *sql.DB, index map[string]*Table) error {
 	const query = `SELECT
 			n.nspname,                                    -- 1
 			c.relname,                                    -- 2
@@ -215,7 +214,7 @@ func readColumns(ctx context.Context, db *sqlx.DB, index map[string]*Table) erro
 	return rows.Err()
 }
 
-func readConstraints(ctx context.Context, db *sqlx.DB, index map[string]*Table) error {
+func readConstraints(ctx context.Context, db *sql.DB, index map[string]*Table) error {
 	const query = `SELECT
 			n.nspname,                      -- 1
 			c.relname,                      -- 2
@@ -269,7 +268,7 @@ func readConstraints(ctx context.Context, db *sqlx.DB, index map[string]*Table) 
 	return rows.Err()
 }
 
-func readIndexes(ctx context.Context, db *sqlx.DB, index map[string]*Table) error {
+func readIndexes(ctx context.Context, db *sql.DB, index map[string]*Table) error {
 	// Indexes backing PK/unique constraints are excluded: the
 	// constraint entry already carries them, and listing both would
 	// make every such index show up twice in a diff.
@@ -318,7 +317,7 @@ func readIndexes(ctx context.Context, db *sqlx.DB, index map[string]*Table) erro
 	return rows.Err()
 }
 
-func readEnums(ctx context.Context, db *sqlx.DB) ([]Enum, error) {
+func readEnums(ctx context.Context, db *sql.DB) ([]Enum, error) {
 	const query = `SELECT
 			n.nspname,   -- 1
 			t.typname,   -- 2
@@ -356,7 +355,7 @@ func readEnums(ctx context.Context, db *sqlx.DB) ([]Enum, error) {
 	return enums, rows.Err()
 }
 
-func readSequences(ctx context.Context, db *sqlx.DB) ([]Sequence, error) {
+func readSequences(ctx context.Context, db *sql.DB) ([]Sequence, error) {
 	// Sequences owned by a column (serial, identity) follow their
 	// column and are excluded; only standalone sequences are schema
 	// objects in their own right.

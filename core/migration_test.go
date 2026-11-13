@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func Test_upFiles(t *testing.T) {
+func TestMigrationFilesUp(t *testing.T) {
 	tests := []struct {
 		name      string
 		wantFiles []string
@@ -30,19 +30,19 @@ func Test_upFiles(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotFiles, err := upFiles(tt.path)
+			gotFiles, err := migrationFiles(tt.path, ".up.sql")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("upFiles() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("migrationFiles() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(gotFiles, tt.wantFiles) {
-				t.Errorf("upFiles() = %v, want %v", gotFiles, tt.wantFiles)
+				t.Errorf("migrationFiles() = %v, want %v", gotFiles, tt.wantFiles)
 			}
 		})
 	}
 }
 
-func Test_downFiles(t *testing.T) {
+func TestMigrationFilesDown(t *testing.T) {
 	tests := []struct {
 		name      string
 		wantFiles []string
@@ -53,21 +53,21 @@ func Test_downFiles(t *testing.T) {
 			name: "list files",
 			path: "testdata",
 			wantFiles: []string{
-				filepath.Join("testdata", "003_a_name.down.sql"),
-				filepath.Join("testdata", "002_b_name.down.sql"),
 				filepath.Join("testdata", "001_name.down.sql"),
+				filepath.Join("testdata", "002_b_name.down.sql"),
+				filepath.Join("testdata", "003_a_name.down.sql"),
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotFiles, err := downFiles(tt.path, 3)
+			gotFiles, err := migrationFiles(tt.path, ".down.sql")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("downFiles() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("migrationFiles() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(gotFiles, tt.wantFiles) {
-				t.Errorf("downFiles() = %v, want %v", gotFiles, tt.wantFiles)
+				t.Errorf("migrationFiles() = %v, want %v", gotFiles, tt.wantFiles)
 			}
 		})
 	}

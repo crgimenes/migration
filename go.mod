@@ -6,8 +6,7 @@ require (
 	github.com/crgimenes/filo v0.1.2
 	github.com/crgimenes/glaze v0.0.83
 	github.com/crgimenes/native v0.1.18
-	github.com/jackc/pgx/v5 v5.12.0
-	github.com/jmoiron/sqlx v1.4.0
+	github.com/jackc/pgx/v5 v5.13.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -18,7 +17,6 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
-	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

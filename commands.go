@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,20 +15,16 @@ import (
 	"github.com/crgimenes/migration/drift"
 	"github.com/crgimenes/migration/introspect"
 	"github.com/crgimenes/migration/snapshot"
-	"github.com/jmoiron/sqlx"
 )
 
 // errDrift makes `migration diff` exit with code 2 in CI: 0 = clean,
 // 1 = failure, 2 = drift found.
 var errDrift = errors.New("schema drift detected")
 
-func openPostgres(dbURL string) (*sqlx.DB, *core.DatabaseConfig, error) {
+func openDB(dbURL string) (*sql.DB, *core.DatabaseConfig, error) {
 	config, err := core.GetDatabaseConfig(dbURL)
 	if err != nil {
 		return nil, nil, err
-	}
-	if config.Type != core.PostgreSQL {
-		return nil, nil, errors.New("schema introspection commands require a PostgreSQL URL")
 	}
 	db, err := core.OpenDatabase(dbURL, config)
 	if err != nil {
@@ -36,7 +33,18 @@ func openPostgres(dbURL string) (*sqlx.DB, *core.DatabaseConfig, error) {
 	return db, config, nil
 }
 
-func closeDB(db *sqlx.DB) {
+func openPostgres(dbURL string) (*sql.DB, *core.DatabaseConfig, error) {
+	config, err := core.GetDatabaseConfig(dbURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	if config.Type != core.PostgreSQL {
+		return nil, nil, errors.New("schema introspection commands require a PostgreSQL URL")
+	}
+	return openDB(dbURL)
+}
+
+func closeDB(db *sql.DB) {
 	err := db.Close()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s failed to close database: %v\n", printWarning("● Warning:"), err)

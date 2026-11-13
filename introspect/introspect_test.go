@@ -2,6 +2,7 @@ package introspect
 
 import (
 	"context"
+	"database/sql"
 	"net/url"
 	"os"
 	"reflect"
@@ -9,7 +10,6 @@ import (
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/jmoiron/sqlx"
 )
 
 // testDB connects to a database of this package's own, created on the
@@ -18,14 +18,14 @@ import (
 // runs packages concurrently, and core's PostgreSQL tests create and
 // drop tables in public. That made TestReadDeterministic fail in CI -
 // two reads straddling another package's DDL.
-func testDB(t *testing.T) *sqlx.DB {
+func testDB(t *testing.T) *sql.DB {
 	t.Helper()
 	base := os.Getenv("DATABASE_URL")
 	if base == "" {
 		t.Skip("DATABASE_URL environment variable not set, skipping PostgreSQL introspection test")
 	}
 
-	admin, err := sqlx.Connect("pgx", base)
+	admin, err := sql.Open("pgx", base)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -49,7 +49,7 @@ func testDB(t *testing.T) *sqlx.DB {
 	}
 	u.Path = "/" + name
 
-	db, err := sqlx.Connect("pgx", u.String())
+	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		t.Fatalf("failed to connect to scratch database: %v", err)
 	}
@@ -82,7 +82,7 @@ CREATE SEQUENCE introspect_test.invoice_seq START 100 INCREMENT 5;
 CREATE TABLE introspect_test.schema_migrations (version integer PRIMARY KEY);
 `
 
-func setupFixture(t *testing.T, db *sqlx.DB) {
+func setupFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := db.ExecContext(ctx, `DROP SCHEMA IF EXISTS introspect_test CASCADE`)

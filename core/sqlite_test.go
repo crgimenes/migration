@@ -226,7 +226,7 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 				t.Errorf("Failed to create migration table: %v", err)
 			}
 
-			tx, err := db.BeginTxx(ctx, nil)
+			tx, err := db.BeginTx(ctx, nil)
 			if err != nil {
 				t.Errorf("Failed to begin transaction: %v", err)
 				return
@@ -248,7 +248,7 @@ func TestDatabaseSpecificSQL(t *testing.T) {
 				return
 			}
 
-			tx, err = db.BeginTxx(ctx, nil)
+			tx, err = db.BeginTx(ctx, nil)
 			if err != nil {
 				t.Errorf("Failed to begin transaction: %v", err)
 				return

@@ -25,16 +25,21 @@ changed between version X and Y" from versioned schema snapshots.
 
 ## Installation
 
+macOS (Homebrew):
+
 ```bash
-go install github.com/crgimenes/migration@latest
+brew install --cask crgimenes/tap/migration
 ```
+
+Linux and Windows: download the binary for your platform from
+[Releases](https://github.com/crgimenes/migration/releases).
 
 Or compile from source:
 
 ```bash
 git clone https://github.com/crgimenes/migration.git
 cd migration
-go build -o migration
+make build
 ```
 
 ## Usage

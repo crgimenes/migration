@@ -181,12 +181,7 @@ func (s *guiService) Connect(dbURL, dir string) (guiInfo, error) {
 		release = func() {}
 	}
 
-	config, err := core.GetDatabaseConfig(dbURL)
-	if err != nil {
-		release()
-		return guiInfo{}, err
-	}
-	db, err := core.OpenDatabase(dbURL, config)
+	db, _, err := openDB(dbURL)
 	if err != nil {
 		release()
 		return guiInfo{}, err
@@ -312,11 +307,7 @@ func (s *guiService) Status() (guiStatus, error) {
 	ctx, cancel := s.guiContext()
 	defer cancel()
 
-	config, err := core.GetDatabaseConfig(dbURL)
-	if err != nil {
-		return guiStatus{}, err
-	}
-	db, err := core.OpenDatabase(dbURL, config)
+	db, config, err := openDB(dbURL)
 	if err != nil {
 		return guiStatus{}, err
 	}
@@ -474,11 +465,7 @@ func (s *guiService) DownPreview() (guiSQLPreview, error) {
 	ctx, cancel := s.guiContext()
 	defer cancel()
 
-	config, err := core.GetDatabaseConfig(dbURL)
-	if err != nil {
-		return guiSQLPreview{}, err
-	}
-	db, err := core.OpenDatabase(dbURL, config)
+	db, config, err := openDB(dbURL)
 	if err != nil {
 		return guiSQLPreview{}, err
 	}

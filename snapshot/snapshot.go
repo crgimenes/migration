@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -74,7 +74,7 @@ func Versions(migrationsDir string) ([]int, error) {
 		}
 		versions = append(versions, v)
 	}
-	sort.Ints(versions)
+	slices.Sort(versions)
 	return versions, nil
 }
 

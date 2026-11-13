@@ -4,11 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
-func Test_version(t *testing.T) {
+func TestFileVersion(t *testing.T) {
 	tests := []struct {
 		path string
 		want int
@@ -21,9 +22,9 @@ func Test_version(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got := version(tt.path)
+			got := FileVersion(tt.path)
 			if got != tt.want {
-				t.Errorf("version(%q) = %d, want %d", tt.path, got, tt.want)
+				t.Errorf("FileVersion(%q) = %d, want %d", tt.path, got, tt.want)
 			}
 		})
 	}
@@ -50,22 +51,6 @@ func Test_parsePar(t *testing.T) {
 				t.Errorf("parsePar(%v) = %d, want %d", tt.m, got, tt.want)
 			}
 		})
-	}
-}
-
-func Test_downFiles_moreAppliedThanFiles(t *testing.T) {
-	dir := t.TempDir()
-	err := os.WriteFile(filepath.Join(dir, "001_a.down.sql"), []byte("SELECT 1;"), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write down file: %v", err)
-	}
-
-	_, err = downFiles(dir, 2)
-	if err == nil {
-		t.Fatal("expected error when applied count exceeds down files on disk")
-	}
-	if !strings.Contains(err.Error(), "2 migrations applied but only 1 down files") {
-		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
@@ -202,47 +187,6 @@ func TestRunSQLiteFile(t *testing.T) {
 	}
 }
 
-func TestGetMigrationMaxTxEmpty(t *testing.T) {
-	ctx := context.Background()
-	dbURL := "sqlite::memory:"
-
-	config, err := GetDatabaseConfig(dbURL)
-	if err != nil {
-		t.Fatalf("failed to get database config: %v", err)
-	}
-	db, err := OpenDatabase(dbURL, config)
-	if err != nil {
-		t.Fatalf("failed to open database: %v", err)
-	}
-	defer func() {
-		closeErr := db.Close()
-		if closeErr != nil {
-			t.Logf("Warning: failed to close database: %v", closeErr)
-		}
-	}()
-
-	err = CheckAndCreateMigrationsTable(ctx, db, config)
-	if err != nil {
-		t.Fatalf("failed to create migrations table: %v", err)
-	}
-
-	tx, err := db.BeginTxx(ctx, nil)
-	if err != nil {
-		t.Fatalf("failed to begin transaction: %v", err)
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	maxVersion, err := GetMigrationMaxTx(ctx, tx)
-	if err != nil {
-		t.Fatalf("GetMigrationMaxTx failed: %v", err)
-	}
-	if maxVersion != 0 {
-		t.Errorf("expected max version 0 on empty table, got %d", maxVersion)
-	}
-}
-
 func TestOpenDatabaseInvalidPath(t *testing.T) {
 	config, err := GetDatabaseConfig("sqlite:///nonexistent-dir-xyz/sub/db.sqlite")
 	if err != nil {
@@ -251,5 +195,136 @@ func TestOpenDatabaseInvalidPath(t *testing.T) {
 	_, err = OpenDatabase("sqlite:///nonexistent-dir-xyz/sub/db.sqlite", config)
 	if err == nil {
 		t.Fatal("expected error opening database in nonexistent directory")
+	}
+}
+
+func writeMigrations(t *testing.T, dir string, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		writeFile(t, filepath.Join(dir, name+".up.sql"), "SELECT 1;")
+		writeFile(t, filepath.Join(dir, name+".down.sql"), "SELECT 1;")
+	}
+}
+
+func run(t *testing.T, dir, dbURL, action string) (int, []string) {
+	t.Helper()
+	n, files, err := Run(context.Background(), dir, dbURL, action)
+	if err != nil {
+		t.Fatalf("%s: %v", action, err)
+	}
+	return n, files
+}
+
+func baseNames(files []string) []string {
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		names = append(names, filepath.Base(f))
+	}
+	return names
+}
+
+func TestUpGappedVersions(t *testing.T) {
+	dir := t.TempDir()
+	writeMigrations(t, dir, "010_a", "020_b", "030_c")
+	dbURL := "sqlite://" + filepath.Join(t.TempDir(), "gap.db")
+
+	n, _ := run(t, dir, dbURL, "up 1")
+	if n != 1 {
+		t.Fatalf("up 1 applied %d, want 1", n)
+	}
+	n, files := run(t, dir, dbURL, "up")
+	want := []string{"020_b.up.sql", "030_c.up.sql"}
+	if n != 2 || !slices.Equal(baseNames(files), want) {
+		t.Fatalf("up applied %v, want %v", baseNames(files), want)
+	}
+	n, _ = run(t, dir, dbURL, "status")
+	if n != 0 {
+		t.Fatalf("status pending %d, want 0", n)
+	}
+}
+
+func TestUpNumericOrderAndLateFile(t *testing.T) {
+	dir := t.TempDir()
+	writeMigrations(t, dir, "9_a", "10_b")
+	dbURL := "sqlite://" + filepath.Join(t.TempDir(), "order.db")
+
+	_, files := run(t, dir, dbURL, "up")
+	want := []string{"9_a.up.sql", "10_b.up.sql"}
+	if !slices.Equal(baseNames(files), want) {
+		t.Fatalf("up order %v, want %v", baseNames(files), want)
+	}
+
+	writeMigrations(t, dir, "5_late")
+	n, files := run(t, dir, dbURL, "status")
+	if n != 1 || filepath.Base(files[0]) != "5_late.up.sql" {
+		t.Fatalf("status = %d %v, want the late file pending", n, baseNames(files))
+	}
+	_, files = run(t, dir, dbURL, "up")
+	if !slices.Equal(baseNames(files), []string{"5_late.up.sql"}) {
+		t.Fatalf("up applied %v, want the late file", baseNames(files))
+	}
+
+	_, files = run(t, dir, dbURL, "down 2")
+	want = []string{"10_b.down.sql", "9_a.down.sql"}
+	if !slices.Equal(baseNames(files), want) {
+		t.Fatalf("down 2 reverted %v, want %v", baseNames(files), want)
+	}
+}
+
+func TestDownMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	writeMigrations(t, dir, "001_a", "002_b")
+	dbURL := "sqlite://" + filepath.Join(t.TempDir(), "down.db")
+	run(t, dir, dbURL, "up")
+
+	err := os.Remove(filepath.Join(dir, "002_b.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = Run(context.Background(), dir, dbURL, "down 1")
+	if err == nil || !strings.Contains(err.Error(), "no down file for applied version 2") {
+		t.Fatalf("down error = %v, want missing down file", err)
+	}
+	n, _ := run(t, dir, dbURL, "status")
+	if n != 0 {
+		t.Fatalf("status pending %d after failed down, want 0 (rolled back)", n)
+	}
+}
+
+func TestMigrationFilesRefusesAmbiguousNames(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{"no version", []string{"setup.up.sql"}, "no numeric version prefix"},
+		{"duplicate version", []string{"001_a.up.sql", "1_b.up.sql"}, "share version 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, f := range tt.files {
+				writeFile(t, filepath.Join(dir, f), "SELECT 1;")
+			}
+			_, err := migrationFiles(dir, ".up.sql")
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("migrationFiles error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseParNegative(t *testing.T) {
+	_, err := parsePar([]string{"up", "-1"})
+	if err == nil {
+		t.Fatal("expected error for a negative count")
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	err := os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

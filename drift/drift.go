@@ -6,13 +6,13 @@
 //
 // The caller owns the database connection. Nothing here registers SQL
 // drivers, so importing this package does not drag the PostgreSQL or the
-// SQLite driver into the consumer's binary; wrap an existing *sql.DB
-// with sqlx.NewDb when the connection comes from another stack (pgx
-// stdlib, for example).
+// SQLite driver into the consumer's binary; a *sql.DB from any stack
+// (pgx stdlib, for example) works as is.
 package drift
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,11 +22,10 @@ import (
 	"github.com/crgimenes/migration/gen"
 	"github.com/crgimenes/migration/introspect"
 	"github.com/crgimenes/migration/snapshot"
-	"github.com/jmoiron/sqlx"
 )
 
 // LiveDiff compares the latest snapshot in dir with the live database.
-func LiveDiff(ctx context.Context, db *sqlx.DB, dir string) (snapVersion int, snap, live *introspect.Schema, changes []diff.Change, err error) {
+func LiveDiff(ctx context.Context, db *sql.DB, dir string) (snapVersion int, snap, live *introspect.Schema, changes []diff.Change, err error) {
 	snapVersion, snap, found, err := snapshot.Latest(dir)
 	if err != nil {
 		return 0, nil, nil, nil, err
@@ -55,7 +54,7 @@ type Outcome struct {
 // Capture turns the current drift into a migration pair, registers the
 // version as applied (the live database already has these changes), and
 // snapshots the new state.
-func Capture(ctx context.Context, db *sqlx.DB, config *core.DatabaseConfig, dir, name string) (*Outcome, error) {
+func Capture(ctx context.Context, db *sql.DB, config *core.DatabaseConfig, dir, name string) (*Outcome, error) {
 	_, snap, live, changes, err := LiveDiff(ctx, db, dir)
 	if err != nil {
 		return nil, err
@@ -117,8 +116,8 @@ func writeMigrationPair(upFile, downFile, upSQL, downSQL string) error {
 	return nil
 }
 
-func markApplied(ctx context.Context, db *sqlx.DB, config *core.DatabaseConfig, version int) error {
-	tx, err := db.BeginTxx(ctx, nil)
+func markApplied(ctx context.Context, db *sql.DB, config *core.DatabaseConfig, version int) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
