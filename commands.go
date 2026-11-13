@@ -103,7 +103,7 @@ func printChanges(changes []diff.Change) {
 		}
 
 		bullet := printInfo("●")
-		if strings.HasSuffix(string(c.Kind), "_dropped") || c.Kind == diff.EnumAltered {
+		if strings.HasSuffix(string(c.Kind), "_dropped") || c.Kind == diff.EnumAltered || strings.Contains(c.Note, diff.PartitionNote) || c.Note == diff.ManualNote {
 			bullet = printWarning("●")
 		}
 		fmt.Printf("    %s %s\n", bullet, c.String())

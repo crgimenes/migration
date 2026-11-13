@@ -15,6 +15,9 @@ type Kind string
 const (
 	TableAdded   Kind = "table_added"
 	TableDropped Kind = "table_dropped"
+	// TableAltered means the partitioning of an existing table changed,
+	// which only a table recreate can do; always left to a human.
+	TableAltered Kind = "table_altered"
 
 	ColumnAdded   Kind = "column_added"
 	ColumnDropped Kind = "column_dropped"
@@ -35,6 +38,11 @@ const (
 	// PostgreSQL cannot express as ALTER TYPE; fixing it needs a
 	// type recreate and is always flagged for human review.
 	EnumAltered Kind = "enum_altered"
+
+	// Manual objects (views, functions, triggers, extensions, domains)
+	// are tracked by name only and never generated.
+	ManualObjectAdded   Kind = "manual_object_added"
+	ManualObjectDropped Kind = "manual_object_dropped"
 
 	SequenceAdded   Kind = "sequence_added"
 	SequenceDropped Kind = "sequence_dropped"
@@ -79,12 +87,13 @@ func (c Change) String() string {
 
 // summaryOrder fixes the phrase order in Summarize output.
 var summaryOrder = []Kind{
-	TableAdded, TableDropped,
+	TableAdded, TableDropped, TableAltered,
 	ColumnAdded, ColumnDropped, ColumnAltered,
 	ConstraintAdded, ConstraintDropped, ConstraintAltered,
 	IndexAdded, IndexDropped, IndexAltered,
 	EnumAdded, EnumDropped, EnumValueAdded, EnumAltered,
 	SequenceAdded, SequenceDropped, SequenceAltered,
+	ManualObjectAdded, ManualObjectDropped,
 }
 
 // Summarize renders a one-line count of the changes, e.g.
@@ -115,6 +124,7 @@ func Summarize(changes []Change) string {
 var inverseKind = map[Kind]Kind{
 	TableAdded:        TableDropped,
 	TableDropped:      TableAdded,
+	TableAltered:      TableAltered,
 	ColumnAdded:       ColumnDropped,
 	ColumnDropped:     ColumnAdded,
 	ColumnAltered:     ColumnAltered,
@@ -131,6 +141,9 @@ var inverseKind = map[Kind]Kind{
 	SequenceAdded:     SequenceDropped,
 	SequenceDropped:   SequenceAdded,
 	SequenceAltered:   SequenceAltered,
+
+	ManualObjectAdded:   ManualObjectDropped,
+	ManualObjectDropped: ManualObjectAdded,
 }
 
 // Inverse returns the change that undoes this one; altered kinds swap
@@ -149,6 +162,11 @@ func Compare(a, b *introspect.Schema) []Change {
 	changes = append(changes, compareTables(a, b)...)
 	changes = append(changes, compareEnums(a, b)...)
 	changes = append(changes, compareSequences(a, b)...)
+	// Snapshots older than format 3 list no manual objects; comparing
+	// against one would report every view and function as new.
+	if a.Format >= 3 && b.Format >= 3 {
+		changes = append(changes, compareManual(a, b)...)
+	}
 	flagPossibleRenames(changes)
 	return changes
 }
@@ -175,16 +193,46 @@ func compareTables(a, b *introspect.Schema) []Change {
 			changes = append(changes, Change{Kind: TableDropped, Schema: old.Schema, Object: old.Name})
 		}
 	}
+	// Snapshots older than format 2 carry no partition key; comparing
+	// against one would report every partitioned table as changed.
+	trackPartitions := a.Format >= 2 && b.Format >= 2
+
 	for i := range b.Tables {
 		fresh := &b.Tables[i]
 		old := oldTables[tableKey(*fresh)]
 		if old == nil {
-			changes = append(changes, Change{Kind: TableAdded, Schema: fresh.Schema, Object: fresh.Name})
+			c := Change{Kind: TableAdded, Schema: fresh.Schema, Object: fresh.Name}
+			if fresh.PartitionKey != "" {
+				c.New = "PARTITION BY " + fresh.PartitionKey
+				c.Note = PartitionNote
+			}
+			changes = append(changes, c)
 			continue
+		}
+		if trackPartitions && old.PartitionKey != fresh.PartitionKey {
+			changes = append(changes, Change{
+				Kind:   TableAltered,
+				Schema: fresh.Schema,
+				Object: fresh.Name,
+				Old:    partitionText(old.PartitionKey),
+				New:    partitionText(fresh.PartitionKey),
+				Note:   PartitionNote,
+			})
 		}
 		changes = append(changes, compareOneTable(old, fresh)...)
 	}
 	return changes
+}
+
+// PartitionNote: recreating a partitioned table can take long and lose
+// data, so it is reported for a human and never generated.
+const PartitionNote = "partitioned table: no DDL is generated; create or convert it by hand"
+
+func partitionText(key string) string {
+	if key == "" {
+		return "not partitioned"
+	}
+	return "PARTITION BY " + key
 }
 
 func columnText(c introspect.Column) string {
@@ -417,6 +465,39 @@ func compareSequences(a, b *introspect.Schema) []Change {
 	return changes
 }
 
+func joinNotes(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + "; " + b
+}
+
+// ManualNote tells the reviewer the change has no generated DDL.
+const ManualNote = "not managed by migration: write this step by hand"
+
+func compareManual(a, b *introspect.Schema) []Change {
+	var changes []Change
+	inA := map[introspect.ManualObject]bool{}
+	for _, o := range a.Manual {
+		inA[o] = true
+	}
+	inB := map[introspect.ManualObject]bool{}
+	for _, o := range b.Manual {
+		inB[o] = true
+	}
+	for _, o := range a.Manual {
+		if !inB[o] {
+			changes = append(changes, Change{Kind: ManualObjectDropped, Schema: o.Schema, Object: o.Name, Old: o.Kind, Note: ManualNote})
+		}
+	}
+	for _, o := range b.Manual {
+		if !inA[o] {
+			changes = append(changes, Change{Kind: ManualObjectAdded, Schema: o.Schema, Object: o.Name, New: o.Kind, Note: ManualNote})
+		}
+	}
+	return changes
+}
+
 // flagPossibleRenames marks drop+add pairs that look like renames.
 // Renames are never guessed silently: a wrong guess generates DROP of
 // real data. The note tells the reviewer to rewrite the pair as
@@ -462,11 +543,8 @@ func flagPossibleRenames(changes []Change) {
 
 	if len(droppedTables) > 0 && len(addedTables) > 0 {
 		note := "possible rename: tables dropped and added in the same diff; if it is a rename, rewrite as ALTER TABLE ... RENAME TO"
-		for _, i := range droppedTables {
-			changes[i].Note = note
-		}
-		for _, i := range addedTables {
-			changes[i].Note = note
+		for _, i := range append(droppedTables, addedTables...) {
+			changes[i].Note = joinNotes(changes[i].Note, note)
 		}
 	}
 }

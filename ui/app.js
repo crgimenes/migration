@@ -23,7 +23,7 @@ function changeList(changes) {
 			html += `<li class="group">${esc(group)}</li>`;
 			lastGroup = group;
 		}
-		const dropped = c.kind.endsWith("_dropped") || c.kind === "enum_altered";
+		const dropped = c.kind.endsWith("_dropped") || c.kind === "enum_altered" || c.kind.startsWith("manual_object") || (c.note || "").includes("partitioned table");
 		let line = c.kind + " " + c.object;
 		if (c.old && c.new) {
 			line += `: ${c.old} -> ${c.new}`;

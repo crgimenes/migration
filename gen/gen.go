@@ -28,23 +28,31 @@ func Generate(changes []diff.Change, from, to *introspect.Schema) (up, down stri
 }
 
 // bucket orders statements so that referenced objects exist before
-// their dependents; destructive drops come last.
+// their dependents. Constraint and index drops run before any add: a
+// replaced primary key must be gone before its successor exists, and
+// foreign keys drop first because they depend on the keys they
+// reference. Destructive drops come last.
 func bucket(c diff.Change) int {
 	switch c.Kind {
 	case diff.EnumAdded, diff.EnumValueAdded, diff.EnumAltered:
 		return 0
 	case diff.SequenceAdded, diff.SequenceAltered:
 		return 1
-	case diff.TableAdded:
-		return 2
-	case diff.ColumnAdded, diff.ColumnAltered:
+	case diff.ConstraintDropped:
+		if strings.HasPrefix(c.Old, "FOREIGN KEY") {
+			return 2
+		}
 		return 3
-	case diff.ConstraintAdded, diff.ConstraintAltered, diff.IndexAdded, diff.IndexAltered:
+	case diff.IndexDropped:
+		return 3
+	case diff.TableAdded, diff.TableAltered, diff.ManualObjectAdded, diff.ManualObjectDropped:
 		return 4
-	case diff.IndexDropped, diff.ConstraintDropped:
+	case diff.ColumnAdded, diff.ColumnAltered:
 		return 5
-	default: // column/table/enum/sequence drops, all destructive
+	case diff.ConstraintAdded, diff.ConstraintAltered, diff.IndexAdded, diff.IndexAltered:
 		return 6
+	default: // column/table/enum/sequence drops, all destructive
+		return 7
 	}
 }
 
@@ -54,7 +62,8 @@ func render(changes []diff.Change, from, to *introspect.Schema) string {
 	// this batch, so every FK is deferred to the end of its bucket pass.
 	var foreignKeys []string
 
-	for b := range 7 {
+	statements = append(statements, createSchemas(changes)...)
+	for b := range 8 {
 		for _, c := range changes {
 			if bucket(c) != b {
 				continue
@@ -63,7 +72,7 @@ func render(changes []diff.Change, from, to *introspect.Schema) string {
 			statements = append(statements, stmt...)
 			foreignKeys = append(foreignKeys, fk...)
 		}
-		if b == 4 {
+		if b == 6 {
 			statements = append(statements, foreignKeys...)
 			foreignKeys = nil
 		}
@@ -75,13 +84,42 @@ func render(changes []diff.Change, from, to *introspect.Schema) string {
 	return strings.Join(statements, "\n") + "\n"
 }
 
+// createSchemas emits the schemas new objects live in. The model does
+// not track schemas, so IF NOT EXISTS keeps an existing one untouched;
+// down leaves the schema in place (dropping it is never needed to undo
+// the objects inside).
+func createSchemas(changes []diff.Change) []string {
+	var stmts []string
+	seen := map[string]bool{"public": true}
+	for _, c := range changes {
+		if c.Kind != diff.TableAdded && c.Kind != diff.EnumAdded && c.Kind != diff.SequenceAdded {
+			continue
+		}
+		if seen[c.Schema] {
+			continue
+		}
+		seen[c.Schema] = true
+		stmts = append(stmts, "CREATE SCHEMA IF NOT EXISTS "+quoteIdent(c.Schema)+";")
+	}
+	return stmts
+}
+
 // statement renders one change. The second return value carries ALTER
 // TABLE ... ADD CONSTRAINT statements for foreign keys, which the
 // caller defers until every table of the batch exists.
 func statement(c diff.Change, from, to *introspect.Schema) (stmts, foreignKeys []string) {
 	switch c.Kind {
 	case diff.TableAdded:
+		if strings.HasPrefix(c.New, "PARTITION BY") {
+			return partitionManual(c), nil
+		}
 		return tableAdded(c, to)
+	case diff.TableAltered:
+		return partitionManual(c), nil
+	case diff.ManualObjectAdded:
+		return []string{fmt.Sprintf("-- MANUAL: create %s %s.%s (not managed by migration; write its DDL here).", c.New, c.Schema, c.Object)}, nil
+	case diff.ManualObjectDropped:
+		return []string{fmt.Sprintf("-- MANUAL: drop %s %s.%s (not managed by migration; write its DDL here).", c.Old, c.Schema, c.Object)}, nil
 	case diff.TableDropped:
 		return destructive(fmt.Sprintf("DROP TABLE %s;", qualified(c.Schema, c.Object)),
 			"all rows of "+qualified(c.Schema, c.Object)+" will be lost"), nil
@@ -125,6 +163,16 @@ func statement(c diff.Change, from, to *introspect.Schema) (stmts, foreignKeys [
 	return nil, nil
 }
 
+func partitionManual(c diff.Change) []string {
+	stmts := []string{"-- MANUAL: " + qualified(c.Schema, c.Object) + " is partitioned; migration does not generate partitioned tables."}
+	if c.Old != "" {
+		stmts = append(stmts, "--   old: "+c.Old)
+	}
+	return append(stmts,
+		"--   new: "+c.New,
+		"-- Recreating it can take long and lose data: write this step by hand.")
+}
+
 func destructive(stmt, why string) []string {
 	return []string{
 		"-- DESTRUCTIVE: " + why + "; review and uncomment to apply.",
@@ -152,8 +200,15 @@ func tableAdded(c diff.Change, to *introspect.Schema) (stmts, foreignKeys []stri
 		lines = append(lines, "\tCONSTRAINT "+quoteIdent(ch.Name)+" "+ch.Definition)
 	}
 
+	var owners []string
+	for _, col := range t.Columns {
+		create, owner := ownedSequence(*t, col, to)
+		stmts = append(stmts, create...)
+		owners = append(owners, owner...)
+	}
 	stmt := fmt.Sprintf("CREATE TABLE %s (\n%s\n);", qualified(t.Schema, t.Name), strings.Join(lines, ",\n"))
 	stmts = append(stmts, stmt)
+	stmts = append(stmts, owners...)
 
 	for _, fk := range t.ForeignKeys {
 		foreignKeys = append(foreignKeys, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s %s;",
@@ -200,7 +255,48 @@ func columnAdded(c diff.Change, to *introspect.Schema) []string {
 	if col == nil {
 		return []string{"-- MISSING: column " + c.Object + " not found in target model"}
 	}
-	return []string{fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", qualified(c.Schema, c.Table), columnDDL(*col))}
+	create, owner := ownedSequence(*t, *col, to)
+	stmts := append(create, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", qualified(c.Schema, c.Table), columnDDL(*col)))
+	return append(stmts, owner...)
+}
+
+var nextvalDefault = regexp.MustCompile(`^nextval\('((?:[^']|'')+)'::regclass\)$`)
+
+// ownedSequence handles serial-style columns: a nextval default whose
+// sequence is not a standalone object of the model belongs to the
+// column (serial, bigserial, OWNED BY), and the model leaves such
+// sequences out. The DDL must create it before the column and hand
+// ownership to the column after, or the default points at nothing on
+// any database built from the migrations.
+func ownedSequence(t introspect.Table, col introspect.Column, to *introspect.Schema) (create, owner []string) {
+	m := nextvalDefault.FindStringSubmatch(col.Default)
+	if m == nil {
+		return nil, nil
+	}
+	// regclass text is already identifier syntax, quoted and
+	// schema-qualified as needed; only the literal's '' is undone.
+	name := strings.ReplaceAll(m[1], "''", "'")
+	if isStandaloneSequence(name, to) {
+		return nil, nil
+	}
+
+	as := ""
+	switch col.Type {
+	case "smallint", "integer", "bigint":
+		as = " AS " + col.Type
+	}
+	create = []string{fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s%s;", name, as)}
+	owner = []string{fmt.Sprintf("ALTER SEQUENCE %s OWNED BY %s.%s;", name, qualified(t.Schema, t.Name), quoteIdent(col.Name))}
+	return create, owner
+}
+
+func isStandaloneSequence(name string, to *introspect.Schema) bool {
+	for _, s := range to.Sequences {
+		if name == qualified(s.Schema, s.Name) || name == quoteIdent(s.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func columnAltered(c diff.Change, from, to *introspect.Schema) []string {
@@ -223,10 +319,14 @@ func columnAltered(c diff.Change, from, to *introspect.Schema) []string {
 			"-- A type change may need USING (expression) to convert existing rows.",
 			fmt.Sprintf("%s TYPE %s;", prefix, after.Type))
 	}
+	var owner []string
 	if before.Default != after.Default {
 		if after.Default == "" {
 			stmts = append(stmts, prefix+" DROP DEFAULT;")
 		} else {
+			var create []string
+			create, owner = ownedSequence(*toTable, *after, to)
+			stmts = append(stmts, create...)
 			stmts = append(stmts, fmt.Sprintf("%s SET DEFAULT %s;", prefix, after.Default))
 		}
 	}
@@ -243,7 +343,7 @@ func columnAltered(c diff.Change, from, to *introspect.Schema) []string {
 			"--   old: "+c.Old,
 			"--   new: "+c.New)
 	}
-	return stmts
+	return append(stmts, owner...)
 }
 
 func indexChanged(c diff.Change, to *introspect.Schema) []string {

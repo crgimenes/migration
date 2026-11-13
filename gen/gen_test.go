@@ -220,3 +220,116 @@ func TestQuoteIdent(t *testing.T) {
 		}
 	}
 }
+
+func serialSchema(schemaName string) *introspect.Schema {
+	seq := "orders_id_seq"
+	if schemaName != "public" {
+		seq = schemaName + "." + seq
+	}
+	return &introspect.Schema{
+		Format: introspect.FormatVersion,
+		Tables: []introspect.Table{{
+			Schema: schemaName,
+			Name:   "orders",
+			Columns: []introspect.Column{
+				{Name: "id", Type: "integer", NotNull: true, Default: "nextval('" + seq + "'::regclass)"},
+			},
+		}},
+	}
+}
+
+func TestGenerateSerialCreatesOwnedSequence(t *testing.T) {
+	to := serialSchema("public")
+	up, _ := Generate(diff.Compare(emptySchema(), to), emptySchema(), to)
+
+	create := strings.Index(up, "CREATE SEQUENCE IF NOT EXISTS orders_id_seq AS integer;")
+	table := strings.Index(up, "CREATE TABLE public.orders")
+	owner := strings.Index(up, "ALTER SEQUENCE orders_id_seq OWNED BY public.orders.id;")
+	if create < 0 || table < 0 || owner < 0 || create > table || owner < table {
+		t.Fatalf("want sequence, table, ownership in that order:\n%s", up)
+	}
+}
+
+func TestGenerateStandaloneSequenceDefaultNotRecreated(t *testing.T) {
+	to := serialSchema("public")
+	to.Sequences = []introspect.Sequence{{Schema: "public", Name: "orders_id_seq", Start: 1, Increment: 1, Min: 1, Max: 100}}
+	up, _ := Generate(diff.Compare(emptySchema(), to), emptySchema(), to)
+	if strings.Contains(up, "IF NOT EXISTS") || strings.Contains(up, "OWNED BY") {
+		t.Fatalf("a standalone sequence is its own object, not owned by the column:\n%s", up)
+	}
+}
+
+func TestGenerateCreatesSchemaOnce(t *testing.T) {
+	to := serialSchema("billing")
+	to.Enums = []introspect.Enum{{Schema: "billing", Name: "state", Values: []string{"a"}}}
+	up, _ := Generate(diff.Compare(emptySchema(), to), emptySchema(), to)
+	if strings.Count(up, "CREATE SCHEMA IF NOT EXISTS billing;") != 1 || !strings.HasPrefix(up, "CREATE SCHEMA") {
+		t.Fatalf("want one CREATE SCHEMA first:\n%s", up)
+	}
+	if !strings.Contains(up, "CREATE SEQUENCE IF NOT EXISTS billing.orders_id_seq AS integer;") {
+		t.Fatalf("schema-qualified owned sequence missing:\n%s", up)
+	}
+}
+
+func TestGenerateDropsBeforeAdds(t *testing.T) {
+	table := func(pk introspect.Constraint, fk introspect.Constraint) introspect.Table {
+		return introspect.Table{
+			Schema: "public", Name: "t",
+			Columns:     []introspect.Column{{Name: "id", Type: "integer"}, {Name: "code", Type: "text"}},
+			PrimaryKey:  &pk,
+			ForeignKeys: []introspect.Constraint{fk},
+		}
+	}
+	from := &introspect.Schema{Tables: []introspect.Table{table(
+		introspect.Constraint{Name: "t_pkey", Definition: "PRIMARY KEY (id)"},
+		introspect.Constraint{Name: "t_fk_old", Definition: "FOREIGN KEY (code) REFERENCES t(code)"},
+	)}}
+	to := &introspect.Schema{Tables: []introspect.Table{table(
+		introspect.Constraint{Name: "t_code_pk", Definition: "PRIMARY KEY (code)"},
+		introspect.Constraint{Name: "t_fk_new", Definition: "FOREIGN KEY (code) REFERENCES t(code)"},
+	)}}
+
+	up, _ := Generate(diff.Compare(from, to), from, to)
+	order := []string{"DROP CONSTRAINT t_fk_old", "DROP CONSTRAINT t_pkey", "ADD CONSTRAINT t_code_pk", "ADD CONSTRAINT t_fk_new"}
+	last := -1
+	for _, want := range order {
+		i := strings.Index(up, want)
+		if i < last {
+			t.Fatalf("want %v in that order:\n%s", order, up)
+		}
+		last = i
+	}
+}
+
+func TestGeneratePartitionedTableIsManual(t *testing.T) {
+	plain := &introspect.Schema{Format: 2}
+	to := &introspect.Schema{Format: 2, Tables: []introspect.Table{{Schema: "public", Name: "logs", PartitionKey: "RANGE (at)",
+		Columns: []introspect.Column{{Name: "at", Type: "date"}}}}}
+
+	up, _ := Generate(diff.Compare(plain, to), plain, to)
+	if strings.Contains(up, "CREATE TABLE") || !strings.Contains(up, "-- MANUAL: public.logs is partitioned") || !strings.Contains(up, "--   new: PARTITION BY RANGE (at)") {
+		t.Fatalf("partitioned table must be MANUAL, never DDL:\n%s", up)
+	}
+
+	converted := &introspect.Schema{Format: 2, Tables: []introspect.Table{{Schema: "public", Name: "logs",
+		Columns: []introspect.Column{{Name: "at", Type: "date"}}}}}
+	up, down := Generate(diff.Compare(converted, to), converted, to)
+	for _, sql := range []string{up, down} {
+		if !strings.Contains(sql, "-- MANUAL:") || strings.Contains(sql, "\nALTER") || strings.Contains(sql, "\nCREATE") {
+			t.Fatalf("partitioning change must be MANUAL only:\n%s", sql)
+		}
+	}
+}
+
+func TestGenerateManualObjects(t *testing.T) {
+	from := &introspect.Schema{Format: 3, Manual: []introspect.ManualObject{{Kind: "view", Schema: "public", Name: "v_old"}}}
+	to := &introspect.Schema{Format: 3, Manual: []introspect.ManualObject{{Kind: "function", Schema: "public", Name: "f(integer)"}}}
+
+	up, down := Generate(diff.Compare(from, to), from, to)
+	if up != "-- MANUAL: drop view public.v_old (not managed by migration; write its DDL here).\n-- MANUAL: create function public.f(integer) (not managed by migration; write its DDL here).\n" {
+		t.Errorf("up:\n%s", up)
+	}
+	if !strings.Contains(down, "-- MANUAL: drop function public.f(integer)") || !strings.Contains(down, "-- MANUAL: create view public.v_old") {
+		t.Errorf("down:\n%s", down)
+	}
+}

@@ -14,25 +14,42 @@ import (
 )
 
 // FormatVersion is bumped when the model shape changes; Load refuses
-// snapshots written by a newer format.
-const FormatVersion = 1
+// snapshots written by a newer format. 2 added Table.PartitionKey,
+// 3 added Schema.Manual.
+const FormatVersion = 3
 
 type Schema struct {
 	Format    int        `json:"format"`
 	Tables    []Table    `json:"tables"`
 	Enums     []Enum     `json:"enums"`
 	Sequences []Sequence `json:"sequences"`
+	// Manual names the objects migration does not generate DDL for, so
+	// a diff can tell the user one appeared or vanished.
+	Manual []ManualObject `json:"manual,omitempty"`
+}
+
+// ManualObject is identified by name only: a changed view body or
+// function source is not detected, only creation and removal.
+type ManualObject struct {
+	Kind   string `json:"kind"` // view, materialized view, function, procedure, aggregate, trigger, extension, domain
+	Schema string `json:"schema"`
+	// Name carries the identity arguments of a routine, f(integer), so
+	// overloads stay distinct, and the table of a trigger, users.audit.
+	Name string `json:"name"`
 }
 
 type Table struct {
-	Schema      string       `json:"schema"`
-	Name        string       `json:"name"`
-	Columns     []Column     `json:"columns"`
-	PrimaryKey  *Constraint  `json:"primary_key,omitempty"`
-	ForeignKeys []Constraint `json:"foreign_keys,omitempty"`
-	Uniques     []Constraint `json:"uniques,omitempty"`
-	Checks      []Constraint `json:"checks,omitempty"`
-	Indexes     []Index      `json:"indexes,omitempty"`
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
+	// PartitionKey is pg_get_partkeydef, e.g. "RANGE (created_at)";
+	// empty for a plain table. Partitions themselves are not modeled.
+	PartitionKey string       `json:"partition_key,omitempty"`
+	Columns      []Column     `json:"columns"`
+	PrimaryKey   *Constraint  `json:"primary_key,omitempty"`
+	ForeignKeys  []Constraint `json:"foreign_keys,omitempty"`
+	Uniques      []Constraint `json:"uniques,omitempty"`
+	Checks       []Constraint `json:"checks,omitempty"`
+	Indexes      []Index      `json:"indexes,omitempty"`
 }
 
 type Column struct {
@@ -114,7 +131,90 @@ func Read(ctx context.Context, db *sql.DB) (*Schema, error) {
 		return nil, err
 	}
 
+	schema.Manual, err = readManual(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
 	return schema, nil
+}
+
+// readManual lists the objects outside the model by name. Members of an
+// extension (pgcrypto's functions, say) are left out: the extension
+// itself is the one object the user manages.
+func readManual(ctx context.Context, db *sql.DB) ([]ManualObject, error) {
+	const query = `SELECT kind, schema_name, name FROM (
+		SELECT
+			CASE c.relkind WHEN 'v' THEN 'view' ELSE 'materialized view' END AS kind,
+			n.nspname AS schema_name,
+			c.relname AS name
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relkind IN ('v', 'm')
+		AND n.nspname NOT IN ` + excludedSchemas + `
+		AND NOT EXISTS (
+			SELECT 1 FROM pg_depend d
+			WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e'
+		)
+	UNION ALL
+		SELECT
+			CASE p.prokind WHEN 'p' THEN 'procedure' WHEN 'a' THEN 'aggregate' ELSE 'function' END,
+			n.nspname,
+			p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+		FROM pg_proc p
+		JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname NOT IN ` + excludedSchemas + `
+		AND NOT EXISTS (
+			SELECT 1 FROM pg_depend d
+			WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
+		)
+	UNION ALL
+		SELECT 'trigger', n.nspname, c.relname || '.' || t.tgname
+		FROM pg_trigger t
+		JOIN pg_class c ON c.oid = t.tgrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE NOT t.tgisinternal
+		AND n.nspname NOT IN ` + excludedSchemas + `
+	UNION ALL
+		SELECT 'extension', n.nspname, e.extname
+		FROM pg_extension e
+		JOIN pg_namespace n ON n.oid = e.extnamespace
+		WHERE n.nspname NOT IN ` + excludedSchemas + `
+	UNION ALL
+		SELECT 'domain', n.nspname, t.typname
+		FROM pg_type t
+		JOIN pg_namespace n ON n.oid = t.typnamespace
+		WHERE t.typtype = 'd'
+		AND n.nspname NOT IN ` + excludedSchemas + `
+		AND NOT EXISTS (
+			SELECT 1 FROM pg_depend d
+			WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e'
+		)
+	) manual
+	ORDER BY kind, schema_name, name`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list manual objects: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var objects []ManualObject
+	for rows.Next() {
+		o := ManualObject{}
+		err = rows.Scan(
+			&o.Kind,   // 1
+			&o.Schema, // 2
+			&o.Name,   // 3
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan manual object: %w", err)
+		}
+		objects = append(objects, o)
+	}
+	return objects, rows.Err()
 }
 
 func tableKey(schema, name string) string {
@@ -123,8 +223,9 @@ func tableKey(schema, name string) string {
 
 func readTables(ctx context.Context, db *sql.DB) ([]string, map[string]*Table, error) {
 	const query = `SELECT
-			n.nspname, -- 1
-			c.relname  -- 2
+			n.nspname,                                -- 1
+			c.relname,                                -- 2
+			COALESCE(pg_get_partkeydef(c.oid), '')    -- 3
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE c.relkind IN ('r', 'p')
@@ -146,8 +247,9 @@ func readTables(ctx context.Context, db *sql.DB) ([]string, map[string]*Table, e
 	for rows.Next() {
 		t := Table{}
 		err = rows.Scan(
-			&t.Schema, // 1
-			&t.Name,   // 2
+			&t.Schema,       // 1
+			&t.Name,         // 2
+			&t.PartitionKey, // 3
 		)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan table: %w", err)

@@ -294,3 +294,81 @@ func TestChangeString(t *testing.T) {
 		t.Errorf("String() = %q, want %q", got, want)
 	}
 }
+
+func partitionedSchema(format int, key string) *introspect.Schema {
+	return &introspect.Schema{
+		Format: format,
+		Tables: []introspect.Table{{Schema: "public", Name: "logs", PartitionKey: key,
+			Columns: []introspect.Column{{Name: "at", Type: "date"}}}},
+	}
+}
+
+func TestComparePartitionedTableAdded(t *testing.T) {
+	changes := Compare(&introspect.Schema{Format: 2}, partitionedSchema(2, "RANGE (at)"))
+	if len(changes) != 1 || changes[0].Kind != TableAdded || changes[0].New != "PARTITION BY RANGE (at)" || changes[0].Note != PartitionNote {
+		t.Fatalf("got %+v", changes)
+	}
+}
+
+func TestComparePartitioningChanged(t *testing.T) {
+	changes := Compare(partitionedSchema(2, ""), partitionedSchema(2, "RANGE (at)"))
+	if len(changes) != 1 || changes[0].Kind != TableAltered || changes[0].Old != "not partitioned" || changes[0].Note != PartitionNote {
+		t.Fatalf("got %+v", changes)
+	}
+	inv := changes[0].Inverse()
+	if inv.Kind != TableAltered || inv.New != "not partitioned" {
+		t.Fatalf("inverse %+v", inv)
+	}
+}
+
+func TestComparePartitioningIgnoredAgainstFormat1(t *testing.T) {
+	changes := Compare(partitionedSchema(1, ""), partitionedSchema(2, "RANGE (at)"))
+	if len(changes) != 0 {
+		t.Fatalf("format 1 snapshot has no partition key; got %+v", changes)
+	}
+}
+
+func TestPartitionNoteSurvivesRenameNote(t *testing.T) {
+	from := &introspect.Schema{Format: 2, Tables: []introspect.Table{{Schema: "public", Name: "old_logs"}}}
+	changes := Compare(from, partitionedSchema(2, "RANGE (at)"))
+	for _, c := range changes {
+		if c.Kind == TableAdded && (!strings.Contains(c.Note, PartitionNote) || !strings.Contains(c.Note, "possible rename")) {
+			t.Fatalf("both notes expected, got %q", c.Note)
+		}
+	}
+}
+
+func manualSchema(format int, objects ...introspect.ManualObject) *introspect.Schema {
+	return &introspect.Schema{Format: format, Manual: objects}
+}
+
+func TestCompareManualObjects(t *testing.T) {
+	view := introspect.ManualObject{Kind: "view", Schema: "public", Name: "v_users"}
+	fn := introspect.ManualObject{Kind: "function", Schema: "public", Name: "f(integer)"}
+	overload := introspect.ManualObject{Kind: "function", Schema: "public", Name: "f(text)"}
+
+	changes := Compare(manualSchema(3, view, fn), manualSchema(3, fn, overload))
+	if len(changes) != 2 {
+		t.Fatalf("got %+v", changes)
+	}
+	if changes[0].Kind != ManualObjectDropped || changes[0].Object != "v_users" || changes[0].Old != "view" || changes[0].Note != ManualNote {
+		t.Errorf("dropped = %+v", changes[0])
+	}
+	if changes[1].Kind != ManualObjectAdded || changes[1].Object != "f(text)" || changes[1].New != "function" {
+		t.Errorf("added = %+v", changes[1])
+	}
+	if changes[1].Inverse().Kind != ManualObjectDropped || changes[1].Inverse().Old != "function" {
+		t.Errorf("inverse = %+v", changes[1].Inverse())
+	}
+	if got := Summarize(changes); got != "1 manual object added, 1 manual object dropped" {
+		t.Errorf("Summarize = %q", got)
+	}
+}
+
+func TestCompareManualIgnoredAgainstOldFormat(t *testing.T) {
+	view := introspect.ManualObject{Kind: "view", Schema: "public", Name: "v_users"}
+	changes := Compare(manualSchema(2), manualSchema(3, view))
+	if len(changes) != 0 {
+		t.Fatalf("format 2 snapshot lists no manual objects; got %+v", changes)
+	}
+}

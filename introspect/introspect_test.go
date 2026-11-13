@@ -80,6 +80,16 @@ CREATE INDEX idx_posts_title ON introspect_test.posts (title);
 CREATE INDEX idx_posts_views_partial ON introspect_test.posts (views) WHERE views > 100;
 CREATE SEQUENCE introspect_test.invoice_seq START 100 INCREMENT 5;
 CREATE TABLE introspect_test.schema_migrations (version integer PRIMARY KEY);
+CREATE TABLE introspect_test.logs (id integer, at date NOT NULL) PARTITION BY RANGE (at);
+CREATE VIEW introspect_test.v_users AS SELECT id, name FROM introspect_test.users;
+CREATE MATERIALIZED VIEW introspect_test.mv_posts AS SELECT count(*) AS n FROM introspect_test.posts;
+CREATE FUNCTION introspect_test.f(integer) RETURNS integer LANGUAGE sql AS 'SELECT $1';
+CREATE FUNCTION introspect_test.f(text) RETURNS text LANGUAGE sql AS 'SELECT $1';
+CREATE FUNCTION introspect_test.touch() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END';
+CREATE TRIGGER audit BEFORE UPDATE ON introspect_test.posts FOR EACH ROW EXECUTE FUNCTION introspect_test.touch();
+CREATE DOMAIN introspect_test.email AS text CHECK (VALUE LIKE '%@%');
+CREATE EXTENSION pgcrypto SCHEMA introspect_test;
+CREATE TABLE introspect_test.logs_2026 PARTITION OF introspect_test.logs FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
 `
 
 func setupFixture(t *testing.T, db *sql.DB) {
@@ -135,6 +145,37 @@ func TestRead(t *testing.T) {
 	users := findTable(schema, "introspect_test", "users")
 	if users == nil {
 		t.Fatal("users table not found")
+	}
+	if users.PartitionKey != "" {
+		t.Errorf("plain table has partition key %q", users.PartitionKey)
+	}
+
+	logs := findTable(schema, "introspect_test", "logs")
+	if logs == nil || logs.PartitionKey != "RANGE (at)" {
+		t.Errorf("partitioned table logs = %+v, want partition key RANGE (at)", logs)
+	}
+	if findTable(schema, "introspect_test", "logs_2026") != nil {
+		t.Error("partitions must stay out of the model")
+	}
+
+	var manual []ManualObject
+	for _, o := range schema.Manual {
+		if o.Schema == "introspect_test" {
+			manual = append(manual, o)
+		}
+	}
+	wantManual := []ManualObject{
+		{Kind: "domain", Schema: "introspect_test", Name: "email"},
+		{Kind: "extension", Schema: "introspect_test", Name: "pgcrypto"},
+		{Kind: "function", Schema: "introspect_test", Name: "f(integer)"},
+		{Kind: "function", Schema: "introspect_test", Name: "f(text)"},
+		{Kind: "function", Schema: "introspect_test", Name: "touch()"},
+		{Kind: "materialized view", Schema: "introspect_test", Name: "mv_posts"},
+		{Kind: "trigger", Schema: "introspect_test", Name: "posts.audit"},
+		{Kind: "view", Schema: "introspect_test", Name: "v_users"},
+	}
+	if !reflect.DeepEqual(manual, wantManual) {
+		t.Errorf("manual objects (extension members must be absent):\n got %v\nwant %v", manual, wantManual)
 	}
 
 	id := findColumn(users, "id")

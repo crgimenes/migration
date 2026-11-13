@@ -16,11 +16,16 @@ jobs:
   # Linux gets a PostgreSQL service container, so the introspect and
   # capture round-trip integration tests run for real here.
   test-linux:
+    name: test-linux-pg${{ matrix.postgres }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['15', '18']
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:${{ matrix.postgres }}-alpine
         env:
           POSTGRES_PASSWORD: migration
           POSTGRES_DB: migration_test
