@@ -10,9 +10,9 @@ all: build
 
 build:
 	# Build for the current OS and architecture
-	go build $(BUILD_FLAGS) -o $(BINARY_NAME) .
+	go build $(BUILD_FLAGS) -o $(BINARY_NAME) ./cmd/migration
 	#Linux amd64 build
-	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(BINARY_NAME)-linux-amd64 .
+	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAGS) -o $(BINARY_NAME)-linux-amd64 ./cmd/migration
 
 clean:
 	rm -f $(BINARY_NAME) $(BINARY_NAME)-*
