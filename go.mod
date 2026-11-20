@@ -3,7 +3,7 @@ module github.com/crgimenes/migration
 go 1.27.4
 
 require (
-	github.com/crgimenes/filo v0.1.4
+	github.com/crgimenes/filo v0.1.5
 	github.com/crgimenes/glaze v0.0.86
 	github.com/crgimenes/native v0.1.18
 	github.com/jackc/pgx/v5 v5.13.0
